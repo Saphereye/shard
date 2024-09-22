@@ -600,10 +600,8 @@ impl Board {
         let square_x_corr: isize = square as isize % 8;
         let square_y_corr: isize = square as isize / 8;
 
-        if square_x_corr + x_offset > 7
-            || square_y_corr + y_offset > 7
-            || square_x_corr < x_offset
-            || square_y_corr < y_offset
+        if !((0..8).contains(&(square_x_corr + x_offset))
+            && (0..8).contains(&(square_y_corr + y_offset)))
         {
             return Piece::Empty;
         }
