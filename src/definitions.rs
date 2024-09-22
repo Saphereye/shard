@@ -80,7 +80,7 @@ impl Square {
         let new_col = current_col as isize + x_offset;
 
         // Check if the new row and column are within bounds
-        if new_row >= 0 && new_row < 8 && new_col >= 0 && new_col < 8 {
+        if (0..8).contains(&new_row) && (0..8).contains(&new_col) {
             Some((new_row * 8 + new_col) as usize)
         } else {
             None
@@ -94,7 +94,7 @@ macro_rules! impl_type_for_square {
         impl From<$type> for Square {
             fn from(value: $type) -> Self {
                 match value {
-                    0..=63 => unsafe { std::mem::transmute(value as u8) },
+                    0..=63 => unsafe { std::mem::transmute::<u8, Square>(value as u8) },
                     _ => Square::None,
                 }
             }
@@ -106,7 +106,7 @@ macro_rules! impl_type_for_square {
             fn add(self, rhs: $type) -> Square {
                 let result: $type = self as $type + rhs;
                 match result {
-                    0..=63 => unsafe { std::mem::transmute(result as u8) },
+                    0..=63 => unsafe { std::mem::transmute::<u8, Square>(result as u8) },
                     _ => Square::None,
                 }
             }
@@ -118,7 +118,7 @@ macro_rules! impl_type_for_square {
             fn sub(self, rhs: $type) -> Square {
                 let result: $type = self as $type - rhs;
                 match result {
-                    0..=63 => unsafe { std::mem::transmute(result as u8) },
+                    0..=63 => unsafe { std::mem::transmute::<u8, Square>(result as u8) },
                     _ => Square::None,
                 }
             }
@@ -199,10 +199,10 @@ static ZOBRIST_TABLE: LazyLock<[[u64; 64]; 14]> = std::sync::LazyLock::new(|| {
     let mut rng = rand::thread_rng();
     let mut table = [[0u64; 64]; 14];
 
-    for piece in 0..14 {
-        for square in 0..64 {
-            // Generate a random u64 value for each piece-square combination
-            table[piece][square] = rng.gen();
+    for piece_table in &mut table {
+        for square_hash in piece_table.iter_mut().take(64) {
+            // Generate a random u64 value for each side
+            *square_hash ^= rng.gen::<u64>();
         }
     }
 
@@ -398,8 +398,8 @@ impl Default for Board {
         pieces[5] = Piece::WB;
         pieces[6] = Piece::WN;
         pieces[7] = Piece::WR;
-        for i in 8..16 {
-            pieces[i] = Piece::WP; // White Pawns
+        for piece in pieces.iter_mut().take(16).skip(8) {
+            *piece = Piece::WP; // White Pawns
         }
 
         // Place black pieces
@@ -411,8 +411,8 @@ impl Default for Board {
         pieces[61] = Piece::BB;
         pieces[62] = Piece::BN;
         pieces[63] = Piece::BR;
-        for i in 48..56 {
-            pieces[i] = Piece::BP; // Black Pawns
+        for piece in pieces.iter_mut().take(56).skip(48) {
+            *piece = Piece::BP; // Black Pawns
         }
 
         let mut temp = Board {
@@ -518,10 +518,10 @@ impl Board {
     pub fn get_hash(&self) -> u64 {
         let mut hash = 0;
 
-        for square in 0..64 {
-            let piece = self.pieces[square];
+        for square_index in 0..64 {
+            let piece = self.pieces[square_index];
             if piece != Piece::Empty {
-                hash ^= ZOBRIST_TABLE[piece as usize][square as usize];
+                hash ^= ZOBRIST_TABLE[piece as usize][square_index];
             }
         }
 
@@ -608,7 +608,7 @@ impl Board {
             return Piece::Empty;
         }
 
-        return self.pieces[(square as isize + x_offset + y_offset * 8) as usize];
+        self.pieces[(square as isize + x_offset + y_offset * 8) as usize]
     }
 
     pub fn is_square_attacked(&self, square: Square) -> bool {
@@ -619,12 +619,10 @@ impl Board {
             {
                 return true;
             }
-        } else {
-            if self.get_piece_with_offset(square, -1, 1) == Piece::BP
-                || self.get_piece_with_offset(square, 1, 1) == Piece::BP
-            {
-                return true;
-            }
+        } else if self.get_piece_with_offset(square, -1, 1) == Piece::BP
+            || self.get_piece_with_offset(square, 1, 1) == Piece::BP
+        {
+            return true;
         }
 
         // Knights
