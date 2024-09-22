@@ -15,7 +15,7 @@ fn main() {
     println!("{:?}", board.pop());
     println!("{}", board);
 
-    let mut board = Board::default();
+    let board = Board::default();
     println!("{}", board);
     // println!("{:0X}", Board::default().get_hash());
     // println!(
@@ -23,8 +23,10 @@ fn main() {
     //     Board::new("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1").get_hash()
     // );
 
-    let mut board: Board =
-        Board::new("rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2");
+    let board: Board = Board::new("8/2P5/4B3/7p/1N1Q1p1P/ppK1Pk2/bR1r3P/8 w - - 0 1");
+    dbg!(board.is_square_attacked(Square::D4));
+    dbg!(board.is_square_attacked(Square::D5));
+    dbg!(board.is_square_attacked(Square::C4));
     // board.update_piece_metadata();
     println!("{}", board);
     // println!("{:?}", board);

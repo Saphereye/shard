@@ -1,6 +1,7 @@
 use rand::Rng;
 use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};
+use std::ops::{Add, Sub};
 use std::sync::LazyLock;
 
 use crate::bitboards::BitBoard;
@@ -68,6 +69,25 @@ impl Display for Square {
     }
 }
 
+impl Square {
+    pub fn new_coor(self, x_offset: isize, y_offset: isize) -> Option<usize> {
+        // Extract current row and column from the square index
+        let current_row = self as usize / 8;
+        let current_col = self as usize % 8;
+
+        // Calculate new row and column based on offsets
+        let new_row = current_row as isize + y_offset;
+        let new_col = current_col as isize + x_offset;
+
+        // Check if the new row and column are within bounds
+        if new_row >= 0 && new_row < 8 && new_col >= 0 && new_col < 8 {
+            Some((new_row * 8 + new_col) as usize)
+        } else {
+            None
+        }
+    }
+}
+
 #[rustfmt::skip]
 macro_rules! impl_type_for_square {
     ($type:ty) => {
@@ -75,6 +95,30 @@ macro_rules! impl_type_for_square {
             fn from(value: $type) -> Self {
                 match value {
                     0..=63 => unsafe { std::mem::transmute(value as u8) },
+                    _ => Square::None,
+                }
+            }
+        }
+
+        impl Add<$type> for Square {
+            type Output = Square;
+
+            fn add(self, rhs: $type) -> Square {
+                let result: $type = self as $type + rhs;
+                match result {
+                    0..=63 => unsafe { std::mem::transmute(result as u8) },
+                    _ => Square::None,
+                }
+            }
+        }
+
+        impl Sub<$type> for Square {
+            type Output = Square;
+
+            fn sub(self, rhs: $type) -> Square {
+                let result: $type = self as $type - rhs;
+                match result {
+                    0..=63 => unsafe { std::mem::transmute(result as u8) },
                     _ => Square::None,
                 }
             }
@@ -103,6 +147,54 @@ pub struct Undo {
     pub position_key: u64,
 }
 
+pub struct Move {
+    /// The move is stored in a 28-bit integer with the following layout:
+    /// ```
+    ///  0000 0000 0000 0000 0000 0000 0000
+    ///     │ │  │ │││   ││       ││      │
+    ///     │ └─┬┘ ││└─┬─┘└───┬───┘└───┬──┘
+    /// Castle  │  ││  │      │        │
+    ///         │  ││  │     To      From
+    ///         │  ││  │
+    ///         │  ││  Captured
+    ///         │  │En Passant
+    ///         │  Pawn Start
+    ///         Promoted Piece(QBRK)
+    /// ```
+    pub move_: u32,
+    pub score: i32,
+}
+
+impl Move {
+    pub fn get_from(&self) -> u32 {
+        self.move_ & 0x7F
+    }
+
+    pub fn get_to(&self) -> u32 {
+        (self.move_ >> 7) & 0x7F
+    }
+
+    pub fn get_is_captured(&self) -> u32 {
+        (self.move_ >> 14) & 0xF
+    }
+
+    pub fn get_is_en_passant(&self) -> u32 {
+        (self.move_ >> 18) & 0x1
+    }
+
+    pub fn get_pawn_start(&self) -> u32 {
+        (self.move_ >> 19) & 0x1
+    }
+
+    pub fn get_promoted_piece(&self) -> u32 {
+        (self.move_ >> 20) & 0x7
+    }
+
+    pub fn get_is_castle(&self) -> u32 {
+        (self.move_ >> 23) & 0xF
+    }
+}
+
 static ZOBRIST_TABLE: LazyLock<[[u64; 64]; 14]> = std::sync::LazyLock::new(|| {
     let mut rng = rand::thread_rng();
     let mut table = [[0u64; 64]; 14];
@@ -117,26 +209,31 @@ static ZOBRIST_TABLE: LazyLock<[[u64; 64]; 14]> = std::sync::LazyLock::new(|| {
     table
 });
 
-const IS_PIECE_BIG: [bool; 13] = [
-    false, false, true, true, true, true, true, false, true, true, true, true, true,
-];
+#[rustfmt::skip]
+fn is_piece_big(piece: &Piece) -> bool {[false, false, true, true, true, true, true, false, true, true, true, true, true,][*piece as usize]}
+#[rustfmt::skip]
+fn is_piece_major(piece: &Piece) -> bool {[false, false, false, false, true, true, true, false, false, false, true, true, true,][*piece as usize]}
+#[rustfmt::skip]
+fn is_piece_minor(piece: &Piece) -> bool {[false, false, true, true, false, false, false, false, true, true, false, false, false,][*piece as usize]}
+#[rustfmt::skip]
+fn piece_value(piece: &Piece) -> u32 {[0, 100, 320, 330, 500, 900, 20000, 100, 320, 330, 500, 900, 20000,][*piece as usize]}
+const KING_MOVE_DIRECTION: [i32; 8] = [-1, -10, 1, 10, -9, -11, 9, 11];
+const BISHOP_MOVE_DIRECTION: [i32; 4] = [-9, -11, 11, 9];
+const ROOK_MOVE_DIRECTION: [i32; 4] = [-1, -10, 1, 10];
+const KNIGHT_MOVE_DIRECTION: [i32; 8] = [-8, -19, -21, -12, 8, 19, 21, 12];
 
-const IS_PIECE_MAJOR: [bool; 13] = [
-    false, false, false, false, true, true, true, false, false, false, true, true, true,
-];
-
-const IS_PIECE_MINOR: [bool; 13] = [
-    false, false, true, true, false, false, false, false, true, true, false, false, false,
-];
-
-const PIECE_VALUE: [u32; 13] = [
-    0, 100, 320, 330, 500, 900, 20000, 100, 320, 330, 500, 900, 20000,
-];
+//  0, WP, WN, WB, WR, WQ, WK, BP, BN, BB, BR, BQ, BK,
 
 #[rustfmt::skip]
-const PIECE_COLOR: [Color; 13] = [
-    Color::Both, Color::White, Color::White, Color::White, Color::White, Color::White, Color::White, Color::Black, Color::Black, Color::Black, Color::Black, Color::Black, Color::Black
-];
+fn is_piece_knight(piece: &Piece) -> bool {[false, false, true, false, false, false, false, false, true, false, false, false, false,][*piece as usize]}
+#[rustfmt::skip]
+fn is_piece_king(piece: &Piece) -> bool {[false, false, false, false, false, false, true, false, false, false, false, false, true,][*piece as usize]}
+#[rustfmt::skip]
+fn is_piece_rook_or_queen(piece: &Piece) -> bool {[false, false, false, false, true, true, false, false, false, false, true, true, false,][*piece as usize]}
+#[rustfmt::skip]
+fn is_piece_bishop_or_queen(piece: &Piece) -> bool {[false, false, false, true, false, true, false, false, false, true, false, true, false,][*piece as usize]}
+#[rustfmt::skip]
+fn piece_color(piece: &Piece) -> Color {[Color::Both, Color::White, Color::White, Color::White, Color::White, Color::White, Color::White, Color::Black, Color::Black, Color::Black, Color::Black, Color::Black, Color::Black,][*piece as usize]}
 
 #[derive(Debug)]
 pub struct Board {
@@ -274,7 +371,7 @@ macro_rules! impl_type_for_board {
 
                 // Parse halfmove clock and fullmove number (not used in this implementation)
                 board.fifty_move_counter = parts[4].parse::<u32>().unwrap_or(0);
-                board.ply = parts[5].parse::<u32>().unwrap_or(0) * 2;
+                board.ply = parts[5].parse::<u32>().unwrap_or(0) * 2; // FIXME: This might be wrong
                 board.history_ply = board.ply; // FIXME: This might be wrong
 
                 board.position_key = board.get_hash();
@@ -366,11 +463,11 @@ impl fmt::Display for Board {
         writeln!(f, "  a b c d e f g h")?; // Print the file labels
         writeln!(f, "Side to move: {}", self.side_to_move)?;
         writeln!(f, "En passant square: {}", self.en_passant_square)?;
-        writeln!(f, "Castle permission: {:#04b}", self.castle_permission)?;
+        writeln!(f, "Castle permission: {:#06b}", self.castle_permission)?;
         writeln!(f, "Fifty move counter: {}", self.fifty_move_counter)?;
         writeln!(f, "Ply: {}", self.ply)?;
         writeln!(f, "History ply: {}", self.history_ply)?;
-        writeln!(f, "Position key: {:0X}", self.position_key)?;
+        writeln!(f, "Position key: {:016X}", self.position_key)?;
         writeln!(f, "Piece count: {:?}", self.piece_count_total)?;
         Ok(())
     }
@@ -460,16 +557,15 @@ impl Board {
 
             let square: Square = index.into();
 
-            if IS_PIECE_BIG[*piece as usize] {
-                self.big_piece_count[PIECE_COLOR[*piece as usize] as usize] += 1;
-            } else if IS_PIECE_MAJOR[*piece as usize] {
-                self.major_piece_count[PIECE_COLOR[*piece as usize] as usize] += 1;
-            } else if IS_PIECE_MINOR[*piece as usize] {
-                self.minor_piece_count[PIECE_COLOR[*piece as usize] as usize] += 1;
+            if is_piece_big(piece) {
+                self.big_piece_count[piece_color(piece) as usize] += 1;
+            } else if is_piece_major(piece) {
+                self.major_piece_count[piece_color(piece) as usize] += 1;
+            } else if is_piece_minor(piece) {
+                self.minor_piece_count[piece_color(piece) as usize] += 1;
             }
 
-            self.material_scores[PIECE_COLOR[*piece as usize] as usize] +=
-                PIECE_VALUE[*piece as usize];
+            self.material_scores[piece_color(piece) as usize] += piece_value(piece);
             self.piece_list[*piece as usize][self.piece_count[*piece as usize] as usize] = square;
             self.piece_count[*piece as usize] += 1;
             self.piece_count_total += 1;
@@ -489,12 +585,146 @@ impl Board {
             }
         }
     }
+
+    fn get_piece(&self, square: Square) -> Piece {
+        self.pieces[square as usize]
+    }
+
+    fn get_piece_at_index(&self, index: usize) -> Piece {
+        self.pieces[index]
+    }
+
+    /// Get the piece at a square with an offset.
+    /// TIP: The board has its origin at top-left corner.
+    fn get_piece_with_offset(&self, square: Square, x_offset: isize, y_offset: isize) -> Piece {
+        let square_x_corr: isize = square as isize % 8;
+        let square_y_corr: isize = square as isize / 8;
+
+        if square_x_corr + x_offset > 7
+            || square_y_corr + y_offset > 7
+            || square_x_corr < x_offset
+            || square_y_corr < y_offset
+        {
+            return Piece::Empty;
+        }
+
+        return self.pieces[(square as isize + x_offset + y_offset * 8) as usize];
+    }
+
+    pub fn is_square_attacked(&self, square: Square) -> bool {
+        // Pawns
+        if self.side_to_move == Color::White {
+            if self.get_piece_with_offset(square, -1, -1) == Piece::WP
+                || self.get_piece_with_offset(square, 1, -1) == Piece::WP
+            {
+                return true;
+            }
+        } else {
+            if self.get_piece_with_offset(square, -1, 1) == Piece::BP
+                || self.get_piece_with_offset(square, 1, 1) == Piece::BP
+            {
+                return true;
+            }
+        }
+
+        // Knights
+        #[rustfmt::skip]
+        let knight_offsets: [(isize, isize); 8] = [
+            (-1, -2), (1, -2), (-2, -1), (2, -1),
+            (-2,  1), (2,  1), (-1,  2), (1,  2),
+        ];
+
+        let knight_piece = if self.side_to_move == Color::White {
+            Piece::WN
+        } else {
+            Piece::BN
+        };
+
+        for (x_offset, y_offset) in knight_offsets.iter() {
+            if self.get_piece_with_offset(square, *x_offset, *y_offset) == knight_piece {
+                return true;
+            }
+        }
+
+        // Kings
+        #[rustfmt::skip]
+        let king_offsets: [(isize, isize); 8] = [
+            (-1, -1), (0, -1), (1, -1),
+            (-1,  0),          (1,  0),
+            (-1,  1), (0,  1), (1,  1),
+        ];
+
+        let king_piece = if self.side_to_move == Color::White {
+            Piece::WK
+        } else {
+            Piece::BK
+        };
+
+        for (x_offset, y_offset) in king_offsets.iter() {
+            if self.get_piece_with_offset(square, *x_offset, *y_offset) == king_piece {
+                return true;
+            }
+        }
+
+        // Rooks and Queens (horizontal and vertical lines)
+        let rook_offsets: [(isize, isize); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+
+        let rook_piece = if self.side_to_move == Color::White {
+            Piece::WR
+        } else {
+            Piece::BR
+        };
+
+        let queen_piece = if self.side_to_move == Color::White {
+            Piece::WQ
+        } else {
+            Piece::BQ
+        };
+
+        for (x_offset, y_offset) in rook_offsets.iter() {
+            let mut step = 1;
+            while let Some(index) = square.new_coor(x_offset * step, y_offset * step) {
+                let piece = self.get_piece_at_index(index);
+                if piece == rook_piece || piece == queen_piece {
+                    return true;
+                } else if piece != Piece::Empty {
+                    break;
+                }
+                step += 1;
+            }
+        }
+
+        // Bishops and Queens (diagonals)
+        let bishop_offsets: [(isize, isize); 4] = [(-1, -1), (1, -1), (-1, 1), (1, 1)];
+
+        let bishop_piece = if self.side_to_move == Color::White {
+            Piece::WB
+        } else {
+            Piece::BB
+        };
+
+        for (x_offset, y_offset) in bishop_offsets.iter() {
+            let mut step = 1;
+            while let Some(index) = square.new_coor(x_offset * step, y_offset * step) {
+                let piece = self.get_piece_at_index(index);
+                if piece == bishop_piece || piece == queen_piece {
+                    return true;
+                } else if piece != Piece::Empty {
+                    break;
+                }
+                step += 1;
+            }
+        }
+
+        false
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     const FEN1: &str = "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2";
+    const FEN2: &str = "8/2P5/4B3/7p/1N1Q1p1P/ppK1Pk2/bR1r3P/8 w - - 0 1";
 
     #[test]
     fn check_pawn_bitboard() {
@@ -518,5 +748,12 @@ mod tests {
         let board: Board = Board::new(FEN1);
         assert_eq!(board.piece_count[Piece::WP as usize], 8);
         assert_eq!(board.piece_count[Piece::BP as usize], 8);
+    }
+
+    #[test]
+    fn check_correct_square_attacked() {
+        let board: Board = Board::new(FEN2);
+        assert_eq!(board.is_square_attacked(Square::B5), true);
+        assert_eq!(board.is_square_attacked(Square::E3), false);
     }
 }

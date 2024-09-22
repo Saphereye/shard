@@ -22,7 +22,7 @@ impl BitBoard {
     }
 
     // Check if a bit is set at the given square index
-    pub fn is_set(&self, square: Square) -> bool {
+    pub fn get(&self, square: Square) -> bool {
         (self.0 >> square as u64) & 1 == 1
     }
 
@@ -51,7 +51,7 @@ impl Display for BitBoard {
             write!(f, "{} ", rank)?; // Print rank label
             for (file_index, _) in files.iter().enumerate() {
                 let square = (7 - rank_index) * 8 + file_index;
-                if self.is_set(square.into()) {
+                if self.get(square.into()) {
                     write!(f, "X ")?;
                 } else {
                     write!(f, ". ")?;
