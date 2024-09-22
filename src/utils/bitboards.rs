@@ -2,18 +2,13 @@ use std::fmt::{self, Display, Formatter};
 
 use crate::definitions::*;
 
-#[derive(Default)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct BitBoard(pub u64);
 
 impl BitBoard {
     // Create a new empty BitBoard
     pub fn new(board_state: u64) -> Self {
         BitBoard(board_state)
-    }
-
-    // Create a BitBoard with a specific value
-    pub fn with_value(value: u64) -> Self {
-        BitBoard(value)
     }
 
     // Set a bit at the given square index
@@ -69,5 +64,26 @@ impl Display for BitBoard {
             write!(f, "{} ", file)?;
         }
         writeln!(f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bitboard() {
+        let mut board = BitBoard::default();
+        board.set(Square::D2);
+        board.set(Square::D3);
+        board.set(Square::D4);
+        assert_eq!(board, BitBoard(134744064));
+        assert_eq!(board.count(), 3);
+        assert_eq!(board.pop(), Square::D2);
+        assert_eq!(board.count(), 2);
+        assert_eq!(board.pop(), Square::D3);
+        assert_eq!(board.count(), 1);
+        assert_eq!(board.pop(), Square::D4);
+        assert_eq!(board.count(), 0);
     }
 }

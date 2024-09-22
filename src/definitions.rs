@@ -1,9 +1,12 @@
 use rand::Rng;
-use std::fmt;
+use std::fmt::{self, Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;
 
+use crate::bitboards::BitBoard;
+
 #[rustfmt::skip]
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Piece {
     Empty = 0, WP, WN, WB, WR, WQ, WK, BP, BN, BB, BR, BQ, BK,
 }
@@ -18,11 +21,21 @@ pub enum Rank {
     R1 = 0, R2, R3, R4, R5, R6, R7, R8, None,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Color {
     White = 0,
     Black,
-    None,
+    Both,
+}
+
+impl Display for Color {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Color::White => write!(f, "White"),
+            Color::Black => write!(f, "Black"),
+            Color::Both => write!(f, "Both"),
+        }
+    }
 }
 
 #[rustfmt::skip]
@@ -35,34 +48,36 @@ pub enum Square {
     A5, B5, C5, D5, E5, F5, G5, H5,
     A6, B6, C6, D6, E6, F6, G6, H6,
     A7, B7, C7, D7, E7, F7, G7, H7,
-    A8, B8, C8, D8, E8, F8, G8, H8, NoSquare,
+    A8, B8, C8, D8, E8, F8, G8, H8, None,
 }
 
+impl Display for Square {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        let files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+        let ranks = ['8', '7', '6', '5', '4', '3', '2', '1'];
+
+        match self {
+            Square::None => write!(f, "None"),
+            square => write!(
+                f,
+                "{}{}",
+                files[*square as usize % 8],
+                ranks[*square as usize / 8]
+            ),
+        }
+    }
+}
+
+#[rustfmt::skip]
 macro_rules! impl_type_for_square {
     ($type:ty) => {
         impl From<$type> for Square {
-            #[rustfmt::skip]
             fn from(value: $type) -> Self {
-                        match value {
-                            0 => Square::A1, 1 => Square::B1, 2 => Square::C1, 3 => Square::D1,
-                            4 => Square::E1, 5 => Square::F1, 6 => Square::G1, 7 => Square::H1,
-                            8 => Square::A2, 9 => Square::B2, 10 => Square::C2, 11 => Square::D2,
-                            12 => Square::E2, 13 => Square::F2, 14 => Square::G2, 15 => Square::H2,
-                            16 => Square::A3, 17 => Square::B3, 18 => Square::C3, 19 => Square::D3,
-                            20 => Square::E3, 21 => Square::F3, 22 => Square::G3, 23 => Square::H3,
-                            24 => Square::A4, 25 => Square::B4, 26 => Square::C4, 27 => Square::D4,
-                            28 => Square::E4, 29 => Square::F4, 30 => Square::G4, 31 => Square::H4,
-                            32 => Square::A5, 33 => Square::B5, 34 => Square::C5, 35 => Square::D5,
-                            36 => Square::E5, 37 => Square::F5, 38 => Square::G5, 39 => Square::H5,
-                            40 => Square::A6, 41 => Square::B6, 42 => Square::C6, 43 => Square::D6,
-                            44 => Square::E6, 45 => Square::F6, 46 => Square::G6, 47 => Square::H6,
-                            48 => Square::A7, 49 => Square::B7, 50 => Square::C7, 51 => Square::D7,
-                            52 => Square::E7, 53 => Square::F7, 54 => Square::G7, 55 => Square::H7,
-                            56 => Square::A8, 57 => Square::B8, 58 => Square::C8, 59 => Square::D8,
-                            60 => Square::E8, 61 => Square::F8, 62 => Square::G8, 63 => Square::H8,
-                            _ => Square::NoSquare,
-                        }
-                    }
+                match value {
+                    0..=63 => unsafe { std::mem::transmute(value as u8) },
+                    _ => Square::None,
+                }
+            }
         }
     };
 }
@@ -79,12 +94,13 @@ pub enum Castling {
     BQ = 0b1000,
 }
 
+#[derive(Debug)]
 pub struct Undo {
-    move_: u32,
-    en_passant_square: Square,
-    fifty_move_counter: u32,
-    castle_permission: u32,
-    position_key: u64,
+    pub move_: u32,
+    pub en_passant_square: Square,
+    pub fifty_move_counter: u32,
+    pub castle_permission: u32,
+    pub position_key: u64,
 }
 
 static ZOBRIST_TABLE: LazyLock<[[u64; 64]; 14]> = std::sync::LazyLock::new(|| {
@@ -101,11 +117,33 @@ static ZOBRIST_TABLE: LazyLock<[[u64; 64]; 14]> = std::sync::LazyLock::new(|| {
     table
 });
 
+const IS_PIECE_BIG: [bool; 13] = [
+    false, false, true, true, true, true, true, false, true, true, true, true, true,
+];
+
+const IS_PIECE_MAJOR: [bool; 13] = [
+    false, false, false, false, true, true, true, false, false, false, true, true, true,
+];
+
+const IS_PIECE_MINOR: [bool; 13] = [
+    false, false, true, true, false, false, false, false, true, true, false, false, false,
+];
+
+const PIECE_VALUE: [u32; 13] = [
+    0, 100, 320, 330, 500, 900, 20000, 100, 320, 330, 500, 900, 20000,
+];
+
+#[rustfmt::skip]
+const PIECE_COLOR: [Color; 13] = [
+    Color::Both, Color::White, Color::White, Color::White, Color::White, Color::White, Color::White, Color::Black, Color::Black, Color::Black, Color::Black, Color::Black, Color::Black
+];
+
+#[derive(Debug)]
 pub struct Board {
     /// Array of 64 squares
     pub pieces: [Piece; 64],
     /// Bitboards for each piece type: White, Black, Both
-    pub pawn_bitboards: [u64; 3],
+    pub pawn_bitboards: [BitBoard; 3],
     /// Squares of the kings for: White, Black
     pub king_square: [Square; 2],
     pub side_to_move: Color,
@@ -121,10 +159,12 @@ pub struct Board {
     pub position_key: u64,
     /// Number of pieces on the board for each piece type
     pub piece_count: [u32; 13],
+    /// Total number of pieces on the board
+    pub piece_count_total: u32,
     /// List of pieces on the board for each piece type,
     /// e.g. to add knights to the board,
     /// we can do pieces\[WN\]\[0\] = E1 then piece_list\[WN\]\[1\] = E4
-    pub piece_list: [[u32; 10]; 13],
+    pub piece_list: [[Square; 10]; 13],
     /// Number of non-pawn pieces on the board. White, Black, Both
     pub big_piece_count: [u32; 3],
     /// Number of rooks and queens on the board. White, Black, Both
@@ -133,7 +173,120 @@ pub struct Board {
     pub minor_piece_count: [u32; 3],
     /// History of the game
     pub history: Vec<Undo>,
+    /// Material scores for White, Black, Both
+    pub material_scores: [u32; 3],
 }
+
+#[rustfmt::skip]
+macro_rules! impl_type_for_board {
+    ($type:ty) => {
+        impl From<$type> for Board {
+            fn from(fen: $type) -> Self {
+                let mut board = Board::empty();
+                let parts: Vec<&str> = fen.split_whitespace().collect();
+
+                // Parse pieces placement
+                let mut square_index = 0;
+                for ch in parts[0].chars() {
+                    match ch {
+                        'r' => {
+                            board.pieces[square_index] = Piece::BR;
+
+                        }
+                        'n' => {
+                            board.pieces[square_index] = Piece::BN;
+                        }
+                        'b' => {
+                            board.pieces[square_index] = Piece::BB;
+                        }
+                        'q' => {
+                            board.pieces[square_index] = Piece::BQ;
+                        }
+                        'k' => {
+                            board.pieces[square_index] = Piece::BK;
+                        }
+                        'p' => {
+                            board.pieces[square_index] = Piece::BP;
+                        }
+                        'R' => {
+                            board.pieces[square_index] = Piece::WR;
+                        }
+                        'N' => {
+                            board.pieces[square_index] = Piece::WN;
+                        }
+                        'B' => {
+                            board.pieces[square_index] = Piece::WB;
+                        }
+                        'Q' => {
+                            board.pieces[square_index] = Piece::WQ;
+                        }
+                        'K' => {
+                            board.pieces[square_index] = Piece::WK;
+                        }
+                        'P' => {
+                            board.pieces[square_index] = Piece::WP;
+                        }
+                        '/' => continue, // Move to next rank
+                        digit if digit.is_digit(10) => {
+                            // Skip squares based on number
+                            let empty_spaces = digit.to_digit(10).unwrap();
+                            square_index += empty_spaces as usize;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                    square_index += 1;
+                }
+
+                // Parse side to move
+                assert!(parts[1] == "w" || parts[1] == "b");
+                board.side_to_move = if parts[1] == "w" {
+                    Color::White
+                } else {
+                    Color::Black
+                };
+
+                // Parse castling rights
+                board.castle_permission = 0;
+                for character in parts[2].chars() {
+                    match character {
+                        'K' => board.castle_permission |= Castling::WK as u32,
+                        'Q' => board.castle_permission |= Castling::WQ as u32,
+                        'k' => board.castle_permission |= Castling::BK as u32,
+                        'q' => board.castle_permission |= Castling::BQ as u32,
+                        _ => {}
+                    }
+                }
+                assert!(board.castle_permission <= 15);
+
+                // Parse en passant square
+                board.en_passant_square = match parts[3] {
+                    "-" => Square::None,
+                    square => {
+                        let file = match square.chars().nth(0).unwrap() {
+                            'a' => 0, 'b' => 1, 'c' => 2, 'd' => 3, 'e' => 4, 'f' => 5, 'g' => 6, 'h' => 7,
+                            _ => 0
+                        };
+                        let rank = square.chars().nth(1).unwrap().to_digit(10).unwrap() - 1;
+                        Square::from((rank * 8 + file) as u8)
+                    }
+                };
+
+                // Parse halfmove clock and fullmove number (not used in this implementation)
+                board.fifty_move_counter = parts[4].parse::<u32>().unwrap_or(0);
+                board.ply = parts[5].parse::<u32>().unwrap_or(0) * 2;
+                board.history_ply = board.ply; // FIXME: This might be wrong
+
+                board.position_key = board.get_hash();
+                board.update_piece_metadata();
+                board
+            }
+        }
+    };
+}
+
+impl_type_for_board!(String);
+impl_type_for_board!(&str);
 
 impl Default for Board {
     fn default() -> Self {
@@ -165,24 +318,30 @@ impl Default for Board {
             pieces[i] = Piece::BP; // Black Pawns
         }
 
-        Board {
+        let mut temp = Board {
             pieces,
-            pawn_bitboards: [0; 3],                // Update later as needed
+            pawn_bitboards: [BitBoard(0); 3], // FIXME: Initialize pawn bitboards
             king_square: [Square::E1, Square::E8], // Standard starting positions for kings
-            side_to_move: Color::White,            // White to move
-            en_passant_square: Square::NoSquare,   // No en passant at start
-            fifty_move_counter: 0,                 // Initial counter
-            ply: 0,                                // Initial ply
-            history_ply: 0,                        // Initial history ply
-            castle_permission: 0b1111,             // Both sides can castle both ways
-            position_key: 0,                       // Initial Zobrist key
-            piece_count: [0; 13],                  // Update counts after initializing pieces
-            piece_list: [[0; 10]; 13],             // Initialize empty piece lists
-            big_piece_count: [0; 3],               // Big piece counts initialized to 0
-            major_piece_count: [0; 3],             // Major piece counts initialized to 0
-            minor_piece_count: [0; 3],             // Minor piece counts initialized to 0
-            history: Vec::new(),                   // Empty history
-        }
+            side_to_move: Color::White,       // White to move
+            en_passant_square: Square::None,  // No en passant at start
+            fifty_move_counter: 0,            // Initial counter
+            ply: 0,                           // Initial ply
+            history_ply: 0,                   // Initial history ply
+            castle_permission: 0b1111,        // Both sides can castle both ways
+            position_key: 0,                  // Initial Zobrist key
+            piece_count: [0; 13],             // Update counts after initializing pieces
+            piece_count_total: 0,             // Update total count after initializing pieces
+            piece_list: [[Square::None; 10]; 13], // Initialize empty piece lists
+            big_piece_count: [0; 3],          // Big piece counts initialized to 0
+            major_piece_count: [0; 3],        // Major piece counts initialized to 0
+            minor_piece_count: [0; 3],        // Minor piece counts initialized to 0
+            history: Vec::new(),              // Empty history
+            material_scores: [0; 3],          // Material scores initialized to 0
+        };
+
+        temp.position_key = temp.get_hash();
+        temp.update_piece_metadata(); // Update piece metadata
+        temp
     }
 }
 
@@ -204,30 +363,59 @@ impl fmt::Display for Board {
             }
             writeln!(f)?; // Move to the next line
         }
-        write!(f, "  a b c d e f g h") // Print the file labels
+        writeln!(f, "  a b c d e f g h")?; // Print the file labels
+        writeln!(f, "Side to move: {}", self.side_to_move)?;
+        writeln!(f, "En passant square: {}", self.en_passant_square)?;
+        writeln!(f, "Castle permission: {:#04b}", self.castle_permission)?;
+        writeln!(f, "Fifty move counter: {}", self.fifty_move_counter)?;
+        writeln!(f, "Ply: {}", self.ply)?;
+        writeln!(f, "History ply: {}", self.history_ply)?;
+        writeln!(f, "Position key: {:0X}", self.position_key)?;
+        writeln!(f, "Piece count: {:?}", self.piece_count_total)?;
+        Ok(())
+    }
+}
+
+impl Hash for Board {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.position_key);
     }
 }
 
 impl Board {
-    pub fn new() -> Self {
-        Board {
-            pieces: [Piece::Empty; 64], // Assuming Piece::Empty is the default piece
-            pawn_bitboards: [0; 3],     // Default bitboards initialized to 0
-            king_square: [Square::NoSquare; 2], // Assuming Square::NoSquare is the default value
-            side_to_move: Color::White, // Default to White
-            en_passant_square: Square::NoSquare, // Default value for en passant
-            fifty_move_counter: 0,      // Initial counter
-            ply: 0,                     // Initial ply
-            history_ply: 0,             // Initial history ply
-            castle_permission: 0,       // No castling permissions
-            position_key: 0,            // Initial Zobrist key
-            piece_count: [0; 13],       // Initialize counts for each piece type to 0
-            piece_list: [[0; 10]; 13],  // Empty piece lists
-            big_piece_count: [0; 3],    // Big piece counts initialized to 0
-            major_piece_count: [0; 3],  // Major piece counts initialized to 0
-            minor_piece_count: [0; 3],  // Minor piece counts initialized to 0
-            history: Vec::new(),        // Empty history
-        }
+    pub fn new<T>(value: T) -> Self
+    where
+        T: Into<Self>,
+    {
+        let mut temp = value.into();
+        temp.update_piece_metadata();
+        temp
+    }
+
+    pub fn empty() -> Self {
+        let mut temp = Board {
+            pieces: [Piece::Empty; 64],
+            pawn_bitboards: [BitBoard(0); 3],
+            king_square: [Square::None, Square::None],
+            side_to_move: Color::White,
+            en_passant_square: Square::None,
+            fifty_move_counter: 0,
+            ply: 0,
+            history_ply: 0,
+            castle_permission: 0b1111,
+            position_key: 0,
+            piece_count: [0; 13],
+            piece_count_total: 0,
+            piece_list: [[Square::None; 10]; 13],
+            big_piece_count: [0; 3],
+            major_piece_count: [0; 3],
+            minor_piece_count: [0; 3],
+            history: Vec::new(),
+            material_scores: [0; 3],
+        };
+
+        temp.position_key = temp.get_hash();
+        temp
     }
 
     pub fn get_hash(&self) -> u64 {
@@ -244,12 +432,91 @@ impl Board {
             hash ^= ZOBRIST_TABLE[12][0];
         }
 
-        if self.en_passant_square != Square::NoSquare {
+        if self.en_passant_square != Square::None {
             hash ^= ZOBRIST_TABLE[12][self.en_passant_square as usize];
         }
 
         hash ^= ZOBRIST_TABLE[13][self.castle_permission as usize];
 
         hash
+    }
+
+    pub fn reset(&mut self) {
+        *self = Board::default();
+    }
+
+    pub fn update_piece_metadata(&mut self) {
+        self.piece_count = [0; 13];
+        self.piece_count_total = 0;
+        self.big_piece_count = [0; 3];
+        self.major_piece_count = [0; 3];
+        self.minor_piece_count = [0; 3];
+        self.material_scores = [0; 3];
+
+        for (index, piece) in self.pieces.iter().enumerate() {
+            if *piece == Piece::Empty {
+                continue;
+            }
+
+            let square: Square = index.into();
+
+            if IS_PIECE_BIG[*piece as usize] {
+                self.big_piece_count[PIECE_COLOR[*piece as usize] as usize] += 1;
+            } else if IS_PIECE_MAJOR[*piece as usize] {
+                self.major_piece_count[PIECE_COLOR[*piece as usize] as usize] += 1;
+            } else if IS_PIECE_MINOR[*piece as usize] {
+                self.minor_piece_count[PIECE_COLOR[*piece as usize] as usize] += 1;
+            }
+
+            self.material_scores[PIECE_COLOR[*piece as usize] as usize] +=
+                PIECE_VALUE[*piece as usize];
+            self.piece_list[*piece as usize][self.piece_count[*piece as usize] as usize] = square;
+            self.piece_count[*piece as usize] += 1;
+            self.piece_count_total += 1;
+
+            match *piece {
+                Piece::WK => self.king_square[Color::White as usize] = square,
+                Piece::BK => self.king_square[Color::Black as usize] = square,
+                Piece::WP => {
+                    self.pawn_bitboards[Color::White as usize].set(square);
+                    self.pawn_bitboards[Color::Both as usize].set(square);
+                }
+                Piece::BP => {
+                    self.pawn_bitboards[Color::Black as usize].set(square);
+                    self.pawn_bitboards[Color::Both as usize].set(square);
+                }
+                _ => (),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const FEN1: &str = "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2";
+
+    #[test]
+    fn check_pawn_bitboard() {
+        let board: Board = Board::new(FEN1);
+        assert_eq!(
+            board.pawn_bitboards[Color::White as usize],
+            BitBoard(67272588153323520)
+        );
+        assert_eq!(
+            board.pawn_bitboards[Color::Black as usize],
+            BitBoard(67173120)
+        );
+        assert_eq!(
+            board.pawn_bitboards[Color::Both as usize],
+            BitBoard(67272588220496640)
+        );
+    }
+
+    #[test]
+    fn check_piece_count() {
+        let board: Board = Board::new(FEN1);
+        assert_eq!(board.piece_count[Piece::WP as usize], 8);
+        assert_eq!(board.piece_count[Piece::BP as usize], 8);
     }
 }
