@@ -12,12 +12,49 @@ pub enum Piece {
     Empty = 0, WP, WN, WB, WR, WQ, WK, BP, BN, BB, BR, BQ, BK,
 }
 
+impl Display for Piece {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Piece::Empty => write!(f, "."),
+            Piece::WP => write!(f, "P"),
+            Piece::WN => write!(f, "N"),
+            Piece::WB => write!(f, "B"),
+            Piece::WR => write!(f, "R"),
+            Piece::WQ => write!(f, "Q"),
+            Piece::WK => write!(f, "K"),
+            Piece::BP => write!(f, "p"),
+            Piece::BN => write!(f, "n"),
+            Piece::BB => write!(f, "b"),
+            Piece::BR => write!(f, "r"),
+            Piece::BQ => write!(f, "q"),
+            Piece::BK => write!(f, "k"),
+        }
+    }
+}
+
+#[rustfmt::skip]
+macro_rules! impl_type_for_piece {
+    ($type:ty) => {
+        impl From<$type> for Piece {
+            fn from(value: $type) -> Self {
+                match value {
+                    0..=12 => unsafe { std::mem::transmute::<u8, Piece>(value as u8) },
+                    _ => Piece::Empty,
+                }
+            }
+        }
+    };
+}
+
+impl_type_for_piece!(u32);
+
 #[rustfmt::skip]
 pub enum File {
     A = 0, B, C, D, E, F, G, H, None,
 }
 
 #[rustfmt::skip]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Rank {
     R1 = 0, R2, R3, R4, R5, R6, R7, R8, None,
 }
@@ -70,10 +107,10 @@ impl Display for Square {
 }
 
 impl Square {
-    pub fn new_coor(self, x_offset: isize, y_offset: isize) -> Option<usize> {
+    pub fn new_coor(&self, x_offset: isize, y_offset: isize) -> Option<usize> {
         // Extract current row and column from the square index
-        let current_row = self as usize / 8;
-        let current_col = self as usize % 8;
+        let current_row = *self as usize / 8;
+        let current_col = *self as usize % 8;
 
         // Calculate new row and column based on offsets
         let new_row = current_row as isize + y_offset;
@@ -84,6 +121,43 @@ impl Square {
             Some((new_row * 8 + new_col) as usize)
         } else {
             None
+        }
+    }
+
+    pub fn new_square(&self, x_offset: isize, y_offset: isize) -> Square {
+        match self.new_coor(x_offset, y_offset) {
+            Some(index) => unsafe { std::mem::transmute::<u8, Square>(index as u8) },
+            None => Square::None,
+        }
+    }
+
+    #[rustfmt::skip]
+    pub fn get_rank(&self) -> Rank {
+        match self {
+            Square::A1 | Square::B1 | Square::C1 | Square::D1 | Square::E1 | Square::F1 | Square::G1 | Square::H1 => Rank::R1,
+            Square::A2 | Square::B2 | Square::C2 | Square::D2 | Square::E2 | Square::F2 | Square::G2 | Square::H2 => Rank::R2,
+            Square::A3 | Square::B3 | Square::C3 | Square::D3 | Square::E3 | Square::F3 | Square::G3 | Square::H3 => Rank::R3,
+            Square::A4 | Square::B4 | Square::C4 | Square::D4 | Square::E4 | Square::F4 | Square::G4 | Square::H4 => Rank::R4,
+            Square::A5 | Square::B5 | Square::C5 | Square::D5 | Square::E5 | Square::F5 | Square::G5 | Square::H5 => Rank::R5,
+            Square::A6 | Square::B6 | Square::C6 | Square::D6 | Square::E6 | Square::F6 | Square::G6 | Square::H6 => Rank::R6,
+            Square::A7 | Square::B7 | Square::C7 | Square::D7 | Square::E7 | Square::F7 | Square::G7 | Square::H7 => Rank::R7,
+            Square::A8 | Square::B8 | Square::C8 | Square::D8 | Square::E8 | Square::F8 | Square::G8 | Square::H8 => Rank::R8,
+            _ => Rank::None,
+        }
+    }
+
+    #[rustfmt::skip]
+    pub fn get_file(&self) -> File {
+        match self {
+            Square::A1 | Square::A2 | Square::A3 | Square::A4 | Square::A5 | Square::A6 | Square::A7 | Square::A8 => File::A,
+            Square::B1 | Square::B2 | Square::B3 | Square::B4 | Square::B5 | Square::B6 | Square::B7 | Square::B8 => File::B,
+            Square::C1 | Square::C2 | Square::C3 | Square::C4 | Square::C5 | Square::C6 | Square::C7 | Square::C8 => File::C,
+            Square::D1 | Square::D2 | Square::D3 | Square::D4 | Square::D5 | Square::D6 | Square::D7 | Square::D8 => File::D,
+            Square::E1 | Square::E2 | Square::E3 | Square::E4 | Square::E5 | Square::E6 | Square::E7 | Square::E8 => File::E,
+            Square::F1 | Square::F2 | Square::F3 | Square::F4 | Square::F5 | Square::F6 | Square::F7 | Square::F8 => File::F,
+            Square::G1 | Square::G2 | Square::G3 | Square::G4 | Square::G5 | Square::G6 | Square::G7 | Square::G8 => File::G,
+            Square::H1 | Square::H2 | Square::H3 | Square::H4 | Square::H5 | Square::H6 | Square::H7 | Square::H8 => File::H,
+            _ => File::None,
         }
     }
 }
@@ -166,6 +240,27 @@ pub struct Move {
 }
 
 impl Move {
+    pub fn new(
+        from: Square,
+        to: Square,
+        captured_piece: Piece, // Piece which got captured
+        is_enpassant: bool,
+        is_pawn_start: bool,
+        promoted_piece: Piece,
+        is_castle: bool,
+    ) -> Self {
+        let mut move_ = 0;
+        move_ |= from as u32;
+        move_ |= (to as u32) << 7;
+        move_ |= (captured_piece as u32) << 14;
+        move_ |= (is_enpassant as u32) << 18;
+        move_ |= (is_pawn_start as u32) << 19;
+        move_ |= (promoted_piece as u32) << 20;
+        move_ |= (is_castle as u32) << 23;
+
+        Self { move_, score: 0 }
+    }
+
     pub fn get_from(&self) -> u32 {
         self.move_ & 0x7F
     }
@@ -174,24 +269,38 @@ impl Move {
         (self.move_ >> 7) & 0x7F
     }
 
-    pub fn get_is_captured(&self) -> u32 {
-        (self.move_ >> 14) & 0xF
+    pub fn get_captured_piece(&self) -> Piece {
+        ((self.move_ >> 14) & 0xF).into()
     }
 
-    pub fn get_is_en_passant(&self) -> u32 {
-        (self.move_ >> 18) & 0x1
+    pub fn get_is_en_passant(&self) -> bool {
+        ((self.move_ >> 18) & 0x1) == 1
     }
 
     pub fn get_pawn_start(&self) -> u32 {
         (self.move_ >> 19) & 0x1
     }
 
-    pub fn get_promoted_piece(&self) -> u32 {
-        (self.move_ >> 20) & 0x7
+    pub fn get_promoted_piece(&self) -> Piece {
+        ((self.move_ >> 20) & 0x7).into()
     }
 
-    pub fn get_is_castle(&self) -> u32 {
-        (self.move_ >> 23) & 0xF
+    pub fn get_is_castle(&self) -> bool {
+        ((self.move_ >> 23) & 0xF) == 1
+    }
+}
+
+impl Display for Move {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let from = Square::from(self.get_from() as u8);
+        let to = Square::from(self.get_to() as u8);
+        let captured = self.get_captured_piece();
+        let is_en_passant = self.get_is_en_passant();
+        let pawn_start = self.get_pawn_start();
+        let is_castle = self.get_is_castle();
+        let promoted_piece = self.get_promoted_piece(); // FIXME: might be wrong algebraic notation
+
+        write!(f, "{}{}{}", from, to, promoted_piece,)
     }
 }
 
@@ -390,29 +499,29 @@ impl Default for Board {
         let mut pieces = [Piece::Empty; 64];
 
         // Place white pieces
-        pieces[0] = Piece::WR;
-        pieces[1] = Piece::WN;
-        pieces[2] = Piece::WB;
-        pieces[3] = Piece::WQ;
-        pieces[4] = Piece::WK;
-        pieces[5] = Piece::WB;
-        pieces[6] = Piece::WN;
-        pieces[7] = Piece::WR;
+        pieces[0] = Piece::BR;
+        pieces[1] = Piece::BN;
+        pieces[2] = Piece::BB;
+        pieces[3] = Piece::BQ;
+        pieces[4] = Piece::BK;
+        pieces[5] = Piece::BB;
+        pieces[6] = Piece::BN;
+        pieces[7] = Piece::BR;
         for piece in pieces.iter_mut().take(16).skip(8) {
-            *piece = Piece::WP; // White Pawns
+            *piece = Piece::BP; // Black Pawns
         }
 
         // Place black pieces
-        pieces[56] = Piece::BR;
-        pieces[57] = Piece::BN;
-        pieces[58] = Piece::BB;
-        pieces[59] = Piece::BQ;
-        pieces[60] = Piece::BK;
-        pieces[61] = Piece::BB;
-        pieces[62] = Piece::BN;
-        pieces[63] = Piece::BR;
+        pieces[56] = Piece::WR;
+        pieces[57] = Piece::WN;
+        pieces[58] = Piece::WB;
+        pieces[59] = Piece::WQ;
+        pieces[60] = Piece::WK;
+        pieces[61] = Piece::WB;
+        pieces[62] = Piece::WN;
+        pieces[63] = Piece::WR;
         for piece in pieces.iter_mut().take(56).skip(48) {
-            *piece = Piece::BP; // Black Pawns
+            *piece = Piece::WP; // White Pawns
         }
 
         let mut temp = Board {
@@ -449,11 +558,11 @@ impl fmt::Display for Board {
         for rank in (0..8).rev() { // Print from rank 8 to 1
             write!(f, "{} ", rank + 1)?; // Print the rank number
             for file in 0..8 {
-                let square_index = rank * 8 + file;
+                let square_index = (7 - rank) * 8 + file;
                 let piece = self.pieces[square_index];
                 let piece_char = match piece {
-                    Piece::WR => '♖', Piece::WN => '♘', Piece::WB => '♗', Piece::WQ => '♕', Piece::WK => '♔', Piece::WP => '♙',
-                    Piece::BR => '♜', Piece::BN => '♞', Piece::BB => '♝', Piece::BQ => '♛', Piece::BK => '♚', Piece::BP => '♟',
+                    Piece::WR => 'R', Piece::WN => 'N', Piece::WB => 'B', Piece::WQ => 'Q', Piece::WK => 'K', Piece::WP => 'P',
+                    Piece::BR => 'r', Piece::BN => 'n', Piece::BB => 'b', Piece::BQ => 'q', Piece::BK => 'k', Piece::BP => 'p',
                     Piece::Empty => '.',
                 };
                 write!(f, "{} ", piece_char)?; // Print the piece character
@@ -595,7 +704,11 @@ impl Board {
     }
 
     /// Get the piece at a square with an offset.
-    /// TIP: The board has its origin at top-left corner.
+    /// The board is like this
+    /// (0, 0) ---> (7, 0)
+    ///  |            |
+    ///  V            V
+    /// (0, 7) ---> (7, 7)
     fn get_piece_with_offset(&self, square: Square, x_offset: isize, y_offset: isize) -> Piece {
         let square_x_corr: isize = square as isize % 8;
         let square_y_corr: isize = square as isize / 8;
@@ -606,11 +719,12 @@ impl Board {
             return Piece::Empty;
         }
 
-        self.pieces[(square as isize + x_offset + y_offset * 8) as usize]
+        self.pieces[(square_x_corr + x_offset + (square_y_corr + y_offset) * 8) as usize]
     }
 
     pub fn is_square_attacked(&self, square: Square) -> bool {
         // Pawns
+        dbg!(self.get_piece_with_offset(square, 1, 1));
         if self.side_to_move == Color::White {
             if self.get_piece_with_offset(square, -1, -1) == Piece::WP
                 || self.get_piece_with_offset(square, 1, -1) == Piece::WP
@@ -713,6 +827,70 @@ impl Board {
         }
 
         false
+    }
+
+    #[rustfmt::skip]
+    pub fn generate_moves(&self) -> Vec<Move> {
+        let mut moves = Vec::new();
+
+        if self.side_to_move == Color::Black {
+            // Black pawns
+            for black_pawn in self.piece_list[Piece::BP as usize] {
+                // The pawn is not on board
+                if black_pawn == Square::None {
+                    continue;
+                }
+                // dbg!(black_pawn, black_pawn.new_square(0, 1));
+                if self.get_piece_with_offset(black_pawn, 0, 1) == Piece::Empty {
+                    // Move one square forward
+                    if black_pawn.get_rank() == Rank::R7 {
+                        // Promotion
+                        moves.push(Move::new(black_pawn, black_pawn.new_square(0, 1), Piece::Empty, false, false, Piece::BQ, false));
+                        moves.push(Move::new(black_pawn, black_pawn.new_square(0, 1), Piece::Empty, false, false, Piece::BR, false));
+                        moves.push(Move::new(black_pawn, black_pawn.new_square(0, 1), Piece::Empty, false, false, Piece::BB, false));
+                        moves.push(Move::new(black_pawn, black_pawn.new_square(0, 1), Piece::Empty, false, false, Piece::BN, false));
+                    } else {
+                        moves.push(Move::new(black_pawn, black_pawn.new_square(0, 1), Piece::Empty, false, true, Piece::Empty, false));
+                    }
+
+                    // Move two squares forward
+                    if black_pawn.get_rank() == Rank::R2
+                        && self.get_piece_with_offset(black_pawn, 0, 2) == Piece::Empty
+                    {
+                        moves.push(Move::new(black_pawn, black_pawn.new_square(0, 2), Piece::Empty, false, true, Piece::Empty, false));
+                    }
+                }
+            }
+        } else {
+            // White pawns
+            for white_pawn in self.piece_list[Piece::WP as usize] {
+                // The pawn is not on board
+                if white_pawn == Square::None {
+                    continue;
+                }
+                if self.get_piece_with_offset(white_pawn, 0, -1) == Piece::Empty {
+                    // Move one square forward
+                    if white_pawn.get_rank() == Rank::R2 {
+                        // Promotion
+                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, -1), Piece::Empty, false, false, Piece::WQ, false));
+                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, -1), Piece::Empty, false, false, Piece::WR, false));
+                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, -1), Piece::Empty, false, false, Piece::WB, false));
+                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, -1), Piece::Empty, false, false, Piece::WN, false));
+                    } else {
+                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, -1), Piece::Empty, false, true, Piece::Empty, false));
+                    }
+
+                    // Move two squares forward
+                    if white_pawn.get_rank() == Rank::R7
+                        && self.get_piece_with_offset(white_pawn, 0, -2) == Piece::Empty
+                    {
+                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, -2), Piece::Empty, false, true, Piece::Empty, false));
+                    }
+                }
+            }
+        }
+
+        moves
     }
 }
 
