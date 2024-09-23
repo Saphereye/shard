@@ -1,6 +1,7 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
+use crate::definitions::bitboards::BitBoard;
 use crate::definitions::castling::{CastleType, Castling};
 use crate::definitions::color::Color;
 use crate::definitions::move_::Move;
@@ -8,7 +9,6 @@ use crate::definitions::piece::Piece;
 use crate::definitions::rank::Rank;
 use crate::definitions::square::Square;
 use crate::definitions::undo::Undo;
-use crate::utils::bitboards::BitBoard;
 use crate::utils::identification::*;
 use crate::utils::offsets::*;
 use crate::utils::zobrist::ZOBRIST_TABLE;
