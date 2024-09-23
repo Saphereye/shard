@@ -3,7 +3,7 @@ use crate::definitions::piece::Piece;
 use crate::definitions::square::Square;
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Move {
     pub from: Square,
     pub to: Square,
@@ -69,7 +69,7 @@ impl Display for Move {
                 }
 
                 // Handle captures
-                if self.captured_piece != Piece::Empty {
+                if self.captured_piece != Piece::None {
                     if self.current_piece == Piece::WP || self.current_piece == Piece::BP {
                         // Pawn captures should include the file of the pawn
                         notation.push(
@@ -87,7 +87,7 @@ impl Display for Move {
                 notation.push_str(&self.to.to_string());
 
                 // Handle promotion
-                if self.promoted_piece != Piece::Empty {
+                if self.promoted_piece != Piece::None {
                     notation.push('=');
                     notation.push(
                         format!("{}", self.promoted_piece)

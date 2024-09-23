@@ -3,13 +3,13 @@ use std::fmt::{self, Display, Formatter};
 #[rustfmt::skip]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Piece {
-    Empty = 0, WP, WN, WB, WR, WQ, WK, BP, BN, BB, BR, BQ, BK,
+    None = 0, WP, WN, WB, WR, WQ, WK, BP, BN, BB, BR, BQ, BK,
 }
 
 impl Display for Piece {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Piece::Empty => write!(f, "."),
+            Piece::None => write!(f, "."),
             Piece::WP => write!(f, "P"),
             Piece::WN => write!(f, "N"),
             Piece::WB => write!(f, "B"),
@@ -33,7 +33,7 @@ macro_rules! impl_type_for_piece {
             fn from(value: $type) -> Self {
                 match value {
                     0..=12 => unsafe { std::mem::transmute::<u8, Piece>(value as u8) },
-                    _ => Piece::Empty,
+                    _ => Piece::None,
                 }
             }
         }

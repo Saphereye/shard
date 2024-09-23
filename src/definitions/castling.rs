@@ -6,7 +6,7 @@ pub enum Castling {
     BQ = 0b1000,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CastleType {
     KingSide,
     QueenSide,
