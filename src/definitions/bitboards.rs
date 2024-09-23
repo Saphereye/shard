@@ -1,6 +1,6 @@
 use std::fmt::{self, Display, Formatter};
 
-use crate::definitions::*;
+use crate::definitions::square::Square;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct BitBoard(pub u64);

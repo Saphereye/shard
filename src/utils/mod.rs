@@ -1,1 +1,3 @@
-pub mod bitboards;
+pub mod identification;
+pub mod offsets;
+pub mod zobrist;

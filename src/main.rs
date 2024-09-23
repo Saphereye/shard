@@ -1,8 +1,6 @@
 mod definitions;
 mod utils;
-use bitboards::BitBoard;
-use definitions::*;
-use utils::*;
+use definitions::board::Board;
 
 fn main() {
     // println!("Hello, world!");
