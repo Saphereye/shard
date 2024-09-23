@@ -53,6 +53,22 @@ pub enum File {
     A = 0, B, C, D, E, F, G, H, None,
 }
 
+impl Display for File {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            File::A => write!(f, "a"),
+            File::B => write!(f, "b"),
+            File::C => write!(f, "c"),
+            File::D => write!(f, "d"),
+            File::E => write!(f, "e"),
+            File::F => write!(f, "f"),
+            File::G => write!(f, "g"),
+            File::H => write!(f, "h"),
+            File::None => write!(f, "None"),
+        }
+    }
+}
+
 #[rustfmt::skip]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Rank {
@@ -92,7 +108,7 @@ pub enum Square {
 impl Display for Square {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-        let ranks = ['8', '7', '6', '5', '4', '3', '2', '1'];
+        let ranks = ['1', '2', '3', '4', '5', '6', '7', '8'];
 
         match self {
             Square::None => write!(f, "None"),
@@ -221,22 +237,24 @@ pub struct Undo {
     pub position_key: u64,
 }
 
+#[derive(Debug)]
 pub struct Move {
-    /// The move is stored in a 28-bit integer with the following layout:
-    /// ```
-    ///  0000 0000 0000 0000 0000 0000 0000
-    ///     │ │  │ │││   ││       ││      │
-    ///     │ └─┬┘ ││└─┬─┘└───┬───┘└───┬──┘
-    /// Castle  │  ││  │      │        │
-    ///         │  ││  │     To      From
-    ///         │  ││  │
-    ///         │  ││  Captured
-    ///         │  │En Passant
-    ///         │  Pawn Start
-    ///         Promoted Piece(QBRK)
-    /// ```
-    pub move_: u32,
+    pub from: Square,
+    pub to: Square,
+    pub captured_piece: Piece,
+    pub is_enpassant: bool,
+    pub is_pawn_start: bool,
+    pub promoted_piece: Piece,
+    pub castle: CastleType,
+    pub current_piece: Piece,
     pub score: i32,
+}
+
+#[derive(Debug)]
+pub enum CastleType {
+    KingSide,
+    QueenSide,
+    None,
 }
 
 impl Move {
@@ -247,60 +265,84 @@ impl Move {
         is_enpassant: bool,
         is_pawn_start: bool,
         promoted_piece: Piece,
-        is_castle: bool,
+        castle: CastleType,
+        current_piece: Piece,
     ) -> Self {
-        let mut move_ = 0;
-        move_ |= from as u32;
-        move_ |= (to as u32) << 7;
-        move_ |= (captured_piece as u32) << 14;
-        move_ |= (is_enpassant as u32) << 18;
-        move_ |= (is_pawn_start as u32) << 19;
-        move_ |= (promoted_piece as u32) << 20;
-        move_ |= (is_castle as u32) << 23;
-
-        Self { move_, score: 0 }
-    }
-
-    pub fn get_from(&self) -> u32 {
-        self.move_ & 0x7F
-    }
-
-    pub fn get_to(&self) -> u32 {
-        (self.move_ >> 7) & 0x7F
-    }
-
-    pub fn get_captured_piece(&self) -> Piece {
-        ((self.move_ >> 14) & 0xF).into()
-    }
-
-    pub fn get_is_en_passant(&self) -> bool {
-        ((self.move_ >> 18) & 0x1) == 1
-    }
-
-    pub fn get_pawn_start(&self) -> u32 {
-        (self.move_ >> 19) & 0x1
-    }
-
-    pub fn get_promoted_piece(&self) -> Piece {
-        ((self.move_ >> 20) & 0x7).into()
-    }
-
-    pub fn get_is_castle(&self) -> bool {
-        ((self.move_ >> 23) & 0xF) == 1
+        Self {
+            from,
+            to,
+            captured_piece,
+            is_enpassant,
+            is_pawn_start,
+            promoted_piece,
+            castle,
+            current_piece,
+            score: 0,
+        }
     }
 }
 
 impl Display for Move {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let from = Square::from(self.get_from() as u8);
-        let to = Square::from(self.get_to() as u8);
-        let captured = self.get_captured_piece();
-        let is_en_passant = self.get_is_en_passant();
-        let pawn_start = self.get_pawn_start();
-        let is_castle = self.get_is_castle();
-        let promoted_piece = self.get_promoted_piece(); // FIXME: might be wrong algebraic notation
+        let mut notation = String::new();
 
-        write!(f, "{}{}{}", from, to, promoted_piece,)
+        match self.castle {
+            CastleType::KingSide => {
+                // Handle king-side castling
+                notation.push_str("O-O");
+            }
+            CastleType::QueenSide => {
+                // Handle queen-side castling
+                notation.push_str("O-O-O");
+            }
+            CastleType::None => {
+                // Handle normal moves and captures
+
+                if self.current_piece != Piece::WP && self.current_piece != Piece::BP {
+                    // For non-pawn pieces, add the piece type
+                    notation.push(
+                        format!("{}", self.current_piece)
+                            .to_uppercase()
+                            .chars()
+                            .next()
+                            .unwrap(),
+                    );
+                }
+
+                // Handle captures
+                if self.captured_piece != Piece::Empty {
+                    if self.current_piece == Piece::WP || self.current_piece == Piece::BP {
+                        // Pawn captures should include the file of the pawn
+                        notation.push(
+                            format!("{}", self.from.get_file())
+                                .to_lowercase()
+                                .chars()
+                                .next()
+                                .unwrap(),
+                        );
+                    }
+                    notation.push('x');
+                }
+
+                // Add the destination square
+                notation.push_str(&self.to.to_string());
+
+                // Handle promotion
+                if self.promoted_piece != Piece::Empty {
+                    notation.push('=');
+                    notation.push(
+                        format!("{}", self.promoted_piece)
+                            .to_uppercase()
+                            .chars()
+                            .next()
+                            .unwrap(),
+                    );
+                }
+            }
+        }
+
+        // Write the constructed notation
+        write!(f, "{}", notation)
     }
 }
 
@@ -326,13 +368,25 @@ fn is_piece_major(piece: &Piece) -> bool {[false, false, false, false, true, tru
 fn is_piece_minor(piece: &Piece) -> bool {[false, false, true, true, false, false, false, false, true, true, false, false, false,][*piece as usize]}
 #[rustfmt::skip]
 fn piece_value(piece: &Piece) -> u32 {[0, 100, 320, 330, 500, 900, 20000, 100, 320, 330, 500, 900, 20000,][*piece as usize]}
-const KING_MOVE_DIRECTION: [i32; 8] = [-1, -10, 1, 10, -9, -11, 9, 11];
-const BISHOP_MOVE_DIRECTION: [i32; 4] = [-9, -11, 11, 9];
-const ROOK_MOVE_DIRECTION: [i32; 4] = [-1, -10, 1, 10];
-const KNIGHT_MOVE_DIRECTION: [i32; 8] = [-8, -19, -21, -12, 8, 19, 21, 12];
+
+#[rustfmt::skip]
+const KING_OFFSETS: [(isize, isize); 8] = [
+    (-1, -1), (0, -1), (1, -1),
+    (-1,  0),          (1,  0),
+    (-1,  1), (0,  1), (1,  1),
+];
+
+#[rustfmt::skip]
+const KNIGHT_OFFSETS: [(isize, isize); 8] = [
+    (-1, -2), (1, -2), (-2, -1), (2, -1),
+    (-2,  1), (2,  1), (-1,  2), (1,  2),
+];
+
+const ROOK_OFFSETS: [(isize, isize); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+
+const BISHOP_OFFSETS: [(isize, isize); 4] = [(-1, -1), (1, -1), (-1, 1), (1, 1)];
 
 //  0, WP, WN, WB, WR, WQ, WK, BP, BN, BB, BR, BQ, BK,
-
 #[rustfmt::skip]
 fn is_piece_knight(piece: &Piece) -> bool {[false, false, true, false, false, false, false, false, true, false, false, false, false,][*piece as usize]}
 #[rustfmt::skip]
@@ -396,41 +450,40 @@ macro_rules! impl_type_for_board {
                 for ch in parts[0].chars() {
                     match ch {
                         'r' => {
-                            board.pieces[square_index] = Piece::BR;
-
+                            board.pieces[flip_board(square_index)] = Piece::BR;
                         }
                         'n' => {
-                            board.pieces[square_index] = Piece::BN;
+                            board.pieces[flip_board(square_index)] = Piece::BN;
                         }
                         'b' => {
-                            board.pieces[square_index] = Piece::BB;
+                            board.pieces[flip_board(square_index)] = Piece::BB;
                         }
                         'q' => {
-                            board.pieces[square_index] = Piece::BQ;
+                            board.pieces[flip_board(square_index)] = Piece::BQ;
                         }
                         'k' => {
-                            board.pieces[square_index] = Piece::BK;
+                            board.pieces[flip_board(square_index)] = Piece::BK;
                         }
                         'p' => {
-                            board.pieces[square_index] = Piece::BP;
+                            board.pieces[flip_board(square_index)] = Piece::BP;
                         }
                         'R' => {
-                            board.pieces[square_index] = Piece::WR;
+                            board.pieces[flip_board(square_index)] = Piece::WR;
                         }
                         'N' => {
-                            board.pieces[square_index] = Piece::WN;
+                            board.pieces[flip_board(square_index)] = Piece::WN;
                         }
                         'B' => {
-                            board.pieces[square_index] = Piece::WB;
+                            board.pieces[flip_board(square_index)] = Piece::WB;
                         }
                         'Q' => {
-                            board.pieces[square_index] = Piece::WQ;
+                            board.pieces[flip_board(square_index)] = Piece::WQ;
                         }
                         'K' => {
-                            board.pieces[square_index] = Piece::WK;
+                            board.pieces[flip_board(square_index)] = Piece::WK;
                         }
                         'P' => {
-                            board.pieces[square_index] = Piece::WP;
+                            board.pieces[flip_board(square_index)] = Piece::WP;
                         }
                         '/' => continue, // Move to next rank
                         digit if digit.is_digit(10) => {
@@ -478,9 +531,9 @@ macro_rules! impl_type_for_board {
                     }
                 };
 
-                // Parse halfmove clock and fullmove number (not used in this implementation)
+                // Parse halfmove clock and fullmove number
                 board.fifty_move_counter = parts[4].parse::<u32>().unwrap_or(0);
-                board.ply = parts[5].parse::<u32>().unwrap_or(0) * 2; // FIXME: This might be wrong
+                board.ply = parts[5].parse::<u32>().unwrap_or(0) * 2;
                 board.history_ply = board.ply; // FIXME: This might be wrong
 
                 board.position_key = board.get_hash();
@@ -491,6 +544,12 @@ macro_rules! impl_type_for_board {
     };
 }
 
+fn flip_board(square_index: usize) -> usize {
+    let rank = square_index / 8;
+    let file = square_index % 8;
+    ((7 - rank) * 8) + (file) // Flip the file by subtracting from 7
+}
+
 impl_type_for_board!(String);
 impl_type_for_board!(&str);
 
@@ -498,30 +557,28 @@ impl Default for Board {
     fn default() -> Self {
         let mut pieces = [Piece::Empty; 64];
 
-        // Place white pieces
-        pieces[0] = Piece::BR;
-        pieces[1] = Piece::BN;
-        pieces[2] = Piece::BB;
-        pieces[3] = Piece::BQ;
-        pieces[4] = Piece::BK;
-        pieces[5] = Piece::BB;
-        pieces[6] = Piece::BN;
-        pieces[7] = Piece::BR;
+        pieces[0] = Piece::WR;
+        pieces[1] = Piece::WN;
+        pieces[2] = Piece::WB;
+        pieces[3] = Piece::WQ;
+        pieces[4] = Piece::WK;
+        pieces[5] = Piece::WB;
+        pieces[6] = Piece::WN;
+        pieces[7] = Piece::WR;
         for piece in pieces.iter_mut().take(16).skip(8) {
-            *piece = Piece::BP; // Black Pawns
+            *piece = Piece::WP; // Black Pawns
         }
 
-        // Place black pieces
-        pieces[56] = Piece::WR;
-        pieces[57] = Piece::WN;
-        pieces[58] = Piece::WB;
-        pieces[59] = Piece::WQ;
-        pieces[60] = Piece::WK;
-        pieces[61] = Piece::WB;
-        pieces[62] = Piece::WN;
-        pieces[63] = Piece::WR;
+        pieces[56] = Piece::BR;
+        pieces[57] = Piece::BN;
+        pieces[58] = Piece::BB;
+        pieces[59] = Piece::BQ;
+        pieces[60] = Piece::BK;
+        pieces[61] = Piece::BB;
+        pieces[62] = Piece::BN;
+        pieces[63] = Piece::BR;
         for piece in pieces.iter_mut().take(56).skip(48) {
-            *piece = Piece::WP; // White Pawns
+            *piece = Piece::BP; // White Pawns
         }
 
         let mut temp = Board {
@@ -558,7 +615,7 @@ impl fmt::Display for Board {
         for rank in (0..8).rev() { // Print from rank 8 to 1
             write!(f, "{} ", rank + 1)?; // Print the rank number
             for file in 0..8 {
-                let square_index = (7 - rank) * 8 + file;
+                let square_index = (rank) * 8 + file;
                 let piece = self.pieces[square_index];
                 let piece_char = match piece {
                     Piece::WR => 'R', Piece::WN => 'N', Piece::WB => 'B', Piece::WQ => 'Q', Piece::WK => 'K', Piece::WP => 'P',
@@ -705,10 +762,19 @@ impl Board {
 
     /// Get the piece at a square with an offset.
     /// The board is like this
-    /// (0, 0) ---> (7, 0)
-    ///  |            |
-    ///  V            V
-    /// (0, 7) ---> (7, 7)
+    /// ```
+    /// (0, 7)───┐             ┌────(7, 7)
+    ///         ┌▼┬─┬─┬─┬─┬─┬─┬▼┐
+    ///         ├─┼─┼─┼─┼─┼─┼─┼─┤
+    ///         ├─┼─┼─┼─┼─┼─┼─┼─┤
+    ///         ├─┼─┼─┼─┼─┼─┼─┼─┤
+    ///         ├─┼─┼─┼─┼─┼─┼─┼─┤
+    ///         ├─┼─┼─┼─┼─┼─┼─┼─┤
+    ///         ├─┼─┼─┼─┼─┼─┼─┼─┤
+    ///         ├─┼─┼─┼─┼─┼─┼─┼─┤
+    ///         └▲┴─┴─┴─┴─┴─┴─┴▲┘
+    ///  (0, 0)──┘ B C D E F G └───(7, 0)
+    ///
     fn get_piece_with_offset(&self, square: Square, x_offset: isize, y_offset: isize) -> Piece {
         let square_x_corr: isize = square as isize % 8;
         let square_y_corr: isize = square as isize / 8;
@@ -722,10 +788,10 @@ impl Board {
         self.pieces[(square_x_corr + x_offset + (square_y_corr + y_offset) * 8) as usize]
     }
 
-    pub fn is_square_attacked(&self, square: Square) -> bool {
+    // Is this square attacked by the side to move?
+    pub fn is_square_attacked(&self, square: Square, side_to_move: Color) -> bool {
         // Pawns
-        dbg!(self.get_piece_with_offset(square, 1, 1));
-        if self.side_to_move == Color::White {
+        if side_to_move == Color::White {
             if self.get_piece_with_offset(square, -1, -1) == Piece::WP
                 || self.get_piece_with_offset(square, 1, -1) == Piece::WP
             {
@@ -738,60 +804,45 @@ impl Board {
         }
 
         // Knights
-        #[rustfmt::skip]
-        let knight_offsets: [(isize, isize); 8] = [
-            (-1, -2), (1, -2), (-2, -1), (2, -1),
-            (-2,  1), (2,  1), (-1,  2), (1,  2),
-        ];
-
-        let knight_piece = if self.side_to_move == Color::White {
+        let knight_piece = if side_to_move == Color::White {
             Piece::WN
         } else {
             Piece::BN
         };
 
-        for (x_offset, y_offset) in knight_offsets.iter() {
+        for (x_offset, y_offset) in KNIGHT_OFFSETS.iter() {
             if self.get_piece_with_offset(square, *x_offset, *y_offset) == knight_piece {
                 return true;
             }
         }
 
         // Kings
-        #[rustfmt::skip]
-        let king_offsets: [(isize, isize); 8] = [
-            (-1, -1), (0, -1), (1, -1),
-            (-1,  0),          (1,  0),
-            (-1,  1), (0,  1), (1,  1),
-        ];
-
-        let king_piece = if self.side_to_move == Color::White {
+        let king_piece = if side_to_move == Color::White {
             Piece::WK
         } else {
             Piece::BK
         };
 
-        for (x_offset, y_offset) in king_offsets.iter() {
+        for (x_offset, y_offset) in KING_OFFSETS.iter() {
             if self.get_piece_with_offset(square, *x_offset, *y_offset) == king_piece {
                 return true;
             }
         }
 
         // Rooks and Queens (horizontal and vertical lines)
-        let rook_offsets: [(isize, isize); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
-
-        let rook_piece = if self.side_to_move == Color::White {
+        let rook_piece = if side_to_move == Color::White {
             Piece::WR
         } else {
             Piece::BR
         };
 
-        let queen_piece = if self.side_to_move == Color::White {
+        let queen_piece = if side_to_move == Color::White {
             Piece::WQ
         } else {
             Piece::BQ
         };
 
-        for (x_offset, y_offset) in rook_offsets.iter() {
+        for (x_offset, y_offset) in ROOK_OFFSETS.iter() {
             let mut step = 1;
             while let Some(index) = square.new_coor(x_offset * step, y_offset * step) {
                 let piece = self.get_piece_at_index(index);
@@ -805,15 +856,13 @@ impl Board {
         }
 
         // Bishops and Queens (diagonals)
-        let bishop_offsets: [(isize, isize); 4] = [(-1, -1), (1, -1), (-1, 1), (1, 1)];
-
-        let bishop_piece = if self.side_to_move == Color::White {
+        let bishop_piece = if side_to_move == Color::White {
             Piece::WB
         } else {
             Piece::BB
         };
 
-        for (x_offset, y_offset) in bishop_offsets.iter() {
+        for (x_offset, y_offset) in BISHOP_OFFSETS.iter() {
             let mut step = 1;
             while let Some(index) = square.new_coor(x_offset * step, y_offset * step) {
                 let piece = self.get_piece_at_index(index);
@@ -829,68 +878,249 @@ impl Board {
         false
     }
 
-    #[rustfmt::skip]
     pub fn generate_moves(&self) -> Vec<Move> {
         let mut moves = Vec::new();
 
-        if self.side_to_move == Color::Black {
-            // Black pawns
-            for black_pawn in self.piece_list[Piece::BP as usize] {
-                // The pawn is not on board
-                if black_pawn == Square::None {
-                    continue;
-                }
-                // dbg!(black_pawn, black_pawn.new_square(0, 1));
-                if self.get_piece_with_offset(black_pawn, 0, 1) == Piece::Empty {
-                    // Move one square forward
-                    if black_pawn.get_rank() == Rank::R7 {
-                        // Promotion
-                        moves.push(Move::new(black_pawn, black_pawn.new_square(0, 1), Piece::Empty, false, false, Piece::BQ, false));
-                        moves.push(Move::new(black_pawn, black_pawn.new_square(0, 1), Piece::Empty, false, false, Piece::BR, false));
-                        moves.push(Move::new(black_pawn, black_pawn.new_square(0, 1), Piece::Empty, false, false, Piece::BB, false));
-                        moves.push(Move::new(black_pawn, black_pawn.new_square(0, 1), Piece::Empty, false, false, Piece::BN, false));
-                    } else {
-                        moves.push(Move::new(black_pawn, black_pawn.new_square(0, 1), Piece::Empty, false, true, Piece::Empty, false));
-                    }
-
-                    // Move two squares forward
-                    if black_pawn.get_rank() == Rank::R2
-                        && self.get_piece_with_offset(black_pawn, 0, 2) == Piece::Empty
-                    {
-                        moves.push(Move::new(black_pawn, black_pawn.new_square(0, 2), Piece::Empty, false, true, Piece::Empty, false));
-                    }
-                }
-            }
-        } else {
+        if self.side_to_move == Color::White {
             // White pawns
             for white_pawn in self.piece_list[Piece::WP as usize] {
                 // The pawn is not on board
                 if white_pawn == Square::None {
                     continue;
                 }
-                if self.get_piece_with_offset(white_pawn, 0, -1) == Piece::Empty {
+
+                if self.get_piece_with_offset(white_pawn, 0, 1) == Piece::Empty {
                     // Move one square forward
-                    if white_pawn.get_rank() == Rank::R2 {
+                    if white_pawn.get_rank() == Rank::R7 {
                         // Promotion
-                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, -1), Piece::Empty, false, false, Piece::WQ, false));
-                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, -1), Piece::Empty, false, false, Piece::WR, false));
-                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, -1), Piece::Empty, false, false, Piece::WB, false));
-                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, -1), Piece::Empty, false, false, Piece::WN, false));
+                        #[rustfmt::skip]
+                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, 1), Piece::Empty, false, false, Piece::WQ, CastleType::None, Piece::WP));
+                        #[rustfmt::skip]
+                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, 1), Piece::Empty, false, false, Piece::WR, CastleType::None, Piece::WP));
+                        #[rustfmt::skip]
+                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, 1), Piece::Empty, false, false, Piece::WB, CastleType::None, Piece::WP));
+                        #[rustfmt::skip]
+                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, 1), Piece::Empty, false, false, Piece::WN, CastleType::None, Piece::WP));
                     } else {
-                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, -1), Piece::Empty, false, true, Piece::Empty, false));
+                        #[rustfmt::skip]
+                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, 1), Piece::Empty, false, true, Piece::Empty, CastleType::None, Piece::WP));
                     }
 
                     // Move two squares forward
-                    if white_pawn.get_rank() == Rank::R7
-                        && self.get_piece_with_offset(white_pawn, 0, -2) == Piece::Empty
+                    if white_pawn.get_rank() == Rank::R2
+                        && self.get_piece_with_offset(white_pawn, 0, 2) == Piece::Empty
                     {
-                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, -2), Piece::Empty, false, true, Piece::Empty, false));
+                        #[rustfmt::skip]
+                        moves.push(Move::new(white_pawn, white_pawn.new_square(0, 2), Piece::Empty, false, true, Piece::Empty, CastleType::None, Piece::WP));
+                    }
+                }
+
+                // Pawn kill
+                if self.get_piece_with_offset(white_pawn, -1, 1) == Piece::BP {
+                    #[rustfmt::skip]
+                    moves.push(Move::new(white_pawn, white_pawn.new_square(-1, 1), Piece::BP, false, false, Piece::Empty, CastleType::None, Piece::WP));
+                } else if self.get_piece_with_offset(white_pawn, 1, 1) == Piece::BP {
+                    #[rustfmt::skip]
+                    moves.push(Move::new(white_pawn, white_pawn.new_square(1, 1), Piece::BP, false, false, Piece::Empty, CastleType::None, Piece::WP));
+                }
+
+                // En passant
+                // if pawn to the side is BP and the en passant square is behind that
+                if self.en_passant_square != Square::None {
+                    if self.get_piece_with_offset(white_pawn, -1, 0) == Piece::BP
+                        && white_pawn.new_square(-1, 1) == self.en_passant_square
+                    {
+                        #[rustfmt::skip]
+                        moves.push(Move::new(white_pawn, white_pawn.new_square(-1, 1), Piece::BP, false, false, Piece::Empty, CastleType::None, Piece::WP));
+                    } else if self.get_piece_with_offset(white_pawn, 1, 0) == Piece::BP
+                        && white_pawn.new_square(1, 1) == self.en_passant_square
+                    {
+                        #[rustfmt::skip]
+                        moves.push(Move::new(white_pawn, white_pawn.new_square(1, 1), Piece::BP, false, false, Piece::Empty, CastleType::None, Piece::WP));
+                    }
+                }
+            }
+
+            // White Rook
+            for white_rook in self.piece_list[Piece::WR as usize] {
+                if white_rook == Square::None {
+                    continue;
+                }
+
+                for (x_offset, y_offset) in ROOK_OFFSETS.iter() {
+                    let mut step = 1;
+                    while let Some(index) = white_rook.new_coor(x_offset * step, y_offset * step) {
+                        let piece = self.get_piece_at_index(index);
+                        if piece == Piece::Empty {
+                            // Rook movement
+                            #[rustfmt::skip]
+                            moves.push(Move::new(white_rook, index.into(), Piece::Empty, false, false, Piece::Empty, CastleType::None, Piece::WR));
+                        } else if piece != Piece::Empty {
+                            if piece_color(&piece) != Color::White {
+                                break;
+                            }
+                            // Rook capture
+                            #[rustfmt::skip]
+                            moves.push(Move::new(white_rook, index.into(), piece, false, false, Piece::Empty, CastleType::None, Piece::WR));
+                            break;
+                        }
+                        step += 1;
+                    }
+                }
+
+                // Rook castle queen side
+                if white_rook == Square::A1
+                    && (self.castle_permission & Castling::WQ as u32 != 0)
+                    && self.is_square_empty(Square::B1)
+                    && self.is_square_empty(Square::C1)
+                    && self.is_square_empty(Square::D1)
+                    && !self.is_square_attacked(Square::E1, Color::Black)
+                    && !self.is_square_attacked(Square::C1, Color::Black)
+                    && !self.is_square_attacked(Square::D1, Color::Black)
+                {
+                    #[rustfmt::skip]
+                    moves.push(Move::new(Square::A1, Square::D1, Piece::Empty, false, false, Piece::Empty, CastleType::QueenSide, Piece::WR));
+                }
+
+                // Rook castle king side
+                if white_rook == Square::H1
+                    && (self.castle_permission & Castling::WK as u32 != 0)
+                    && self.is_square_empty(Square::F1)
+                    && self.is_square_empty(Square::G1)
+                    && !self.is_square_attacked(Square::E1, Color::Black)
+                    && !self.is_square_attacked(Square::F1, Color::Black)
+                    && !self.is_square_attacked(Square::G1, Color::Black)
+                    && !self.is_square_attacked(Square::H1, Color::Black)
+                {
+                    #[rustfmt::skip]
+                    moves.push(Move::new(Square::H1, Square::F1, Piece::Empty, false, false, Piece::Empty, CastleType::KingSide, Piece::WR));
+                }
+            }
+
+            // White Bishop
+            for white_bishop in self.piece_list[Piece::WB as usize] {
+                if white_bishop == Square::None {
+                    continue;
+                }
+
+                for (x_offset, y_offset) in BISHOP_OFFSETS.iter() {
+                    let mut step = 1;
+                    while let Some(index) = white_bishop.new_coor(x_offset * step, y_offset * step)
+                    {
+                        let piece = self.get_piece_at_index(index);
+                        if piece == Piece::Empty {
+                            // Bishop movement
+                            #[rustfmt::skip]
+                            moves.push(Move::new(white_bishop, index.into(), Piece::Empty, false, false, Piece::Empty, CastleType::None, Piece::WB));
+                        } else if piece != Piece::Empty {
+                            if piece_color(&piece) == Color::White {
+                                break;
+                            }
+                            // Bishop capture
+                            #[rustfmt::skip]
+                            moves.push(Move::new(white_bishop, index.into(), piece, false, false, Piece::Empty, CastleType::None, Piece::WB));
+                            break;
+                        }
+                        step += 1;
+                    }
+                }
+            }
+
+            // White Knight
+            for white_knight in self.piece_list[Piece::WN as usize] {
+                if white_knight == Square::None {
+                    continue;
+                }
+
+                for (x_offset, y_offset) in KNIGHT_OFFSETS.iter() {
+                    if let Some(index) = white_knight.new_coor(*x_offset, *y_offset) {
+                        let piece = self.get_piece_at_index(index);
+                        if piece == Piece::Empty {
+                            #[rustfmt::skip]
+                            moves.push(Move::new(white_knight, index.into(), Piece::Empty, false, false, Piece::Empty, CastleType::None, Piece::WN));
+                        } else if piece_color(&piece) != Color::White {
+                            #[rustfmt::skip]
+                            moves.push(Move::new(white_knight, index.into(), piece, false, false, Piece::Empty, CastleType::None, Piece::WN));
+                        }
+                    }
+                }
+            }
+
+            // White Queen
+            for white_queen in self.piece_list[Piece::WQ as usize] {
+                if white_queen == Square::None {
+                    continue;
+                }
+
+                for (x_offset, y_offset) in BISHOP_OFFSETS.iter() {
+                    let mut step = 1;
+                    while let Some(index) = white_queen.new_coor(x_offset * step, y_offset * step) {
+                        let piece = self.get_piece_at_index(index);
+                        if piece == Piece::Empty {
+                            // Bishop-type movement
+                            #[rustfmt::skip]
+                            moves.push(Move::new(white_queen, index.into(), Piece::Empty, false, false, Piece::Empty, CastleType::None, Piece::WQ));
+                        } else if piece != Piece::Empty {
+                            if piece_color(&piece) == Color::White {
+                                break;
+                            }
+                            // Bishop-type capture
+                            #[rustfmt::skip]
+                            moves.push(Move::new(white_queen, index.into(), piece, false, false, Piece::Empty, CastleType::None, Piece::WQ));
+                            break;
+                        }
+                        step += 1;
+                    }
+                }
+
+                for (x_offset, y_offset) in ROOK_OFFSETS.iter() {
+                    let mut step = 1;
+                    while let Some(index) = white_queen.new_coor(x_offset * step, y_offset * step) {
+                        let piece = self.get_piece_at_index(index);
+                        if piece == Piece::Empty {
+                            // Rook-type movement
+                            #[rustfmt::skip]
+                            moves.push(Move::new(white_queen, index.into(), Piece::Empty, false, false, Piece::Empty, CastleType::None, Piece::WQ));
+                        } else if piece != Piece::Empty {
+                            if piece_color(&piece) == Color::White {
+                                break;
+                            }
+                            // Rook-type capture
+                            #[rustfmt::skip]
+                            moves.push(Move::new(white_queen, index.into(), piece, false, false, Piece::Empty, CastleType::None, Piece::WQ));
+                            break;
+                        }
+                        step += 1;
+                    }
+                }
+            }
+
+            // White King
+            for white_king in self.piece_list[Piece::WK as usize] {
+                if white_king == Square::None {
+                    break;
+                }
+
+                for (x_offset, y_offset) in KING_OFFSETS.iter() {
+                    if let Some(index) = white_king.new_coor(*x_offset, *y_offset) {
+                        let piece = self.get_piece_at_index(index);
+                        if piece == Piece::Empty {
+                            #[rustfmt::skip]
+                            moves.push(Move::new(white_king, index.into(), Piece::Empty, false, false, Piece::Empty, CastleType::None, Piece::WK));
+                        } else if piece_color(&piece) != Color::White {
+                            #[rustfmt::skip]
+                            moves.push(Move::new(white_king, index.into(), piece, false, false, Piece::Empty, CastleType::None, Piece::WK));
+                        }
                     }
                 }
             }
         }
 
         moves
+    }
+
+    pub fn is_square_empty(&self, square: Square) -> bool {
+        self.get_piece_at_index(square as usize) == Piece::Empty
     }
 }
 
@@ -927,7 +1157,7 @@ mod tests {
     #[test]
     fn check_correct_square_attacked() {
         let board: Board = Board::new(FEN2);
-        assert_eq!(board.is_square_attacked(Square::B5), true);
+        assert_eq!(board.is_square_attacked(Square::B5), true); // TODO
         assert_eq!(board.is_square_attacked(Square::E3), false);
     }
 }
