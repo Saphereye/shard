@@ -18,7 +18,7 @@ fn main() {
     // let board = Board::default();
     // let board = Board::new("rnbqkbnr/ppp1p1pp/3p4/4Pp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3"); // En passant
     // let board = Board::new("rnbqkbnr/ppp1p1pp/8/4P3/2p2p2/5P2/PPPPN1PP/RNBQK2R w KQkq - 0 6"); // Castling
-    let board = Board::new("6k1/p5pp/b4r2/5p2/1Pq1p3/1Qpp1PP1/P5BP/3RR1K1 w - - 0 30");
+    let board = Board::new("6k1/p5pp/b4r2/5p2/1Pq1p3/1Qpp1PP1/P5BP/3RR1K1 b - - 0 30");
     println!("{}", board);
     for move_ in board.generate_moves() {
         print!("{} ", move_);
