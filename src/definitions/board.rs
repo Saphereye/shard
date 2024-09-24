@@ -1410,43 +1410,103 @@ mod tests {
 
     #[test]
     #[rustfmt::skip]
-    fn test_perft() {
+    fn test_perft_illegal_en_passant() {
         // avoid illegal en passant capture
         assert_eq!(Board::new("8/5bk1/8/2Pp4/8/1K6/8/8 w - d6 0 1").perft_test(6), 824064);
         assert_eq!(Board::new("8/8/1k6/8/2pP4/8/5BK1/8 b - d3 0 1").perft_test(6), 824064);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_perft_en_passant_capture_checks_opponent() {
         //en passant capture checks opponent
         assert_eq!(Board::new("8/8/1k6/2b5/2pP4/8/5K2/8 b - d3 0 1").perft_test(6), 1440467);
         assert_eq!(Board::new("8/5k2/8/2Pp4/2B5/1K6/8/8 w - d6 0 1").perft_test(6), 1440467);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_perft_short_castling_gives_check() {
         // short castling gives check:
         assert_eq!(Board::new("5k2/8/8/8/8/8/8/4K2R w K - 0 1").perft_test(6), 661072);
         assert_eq!(Board::new("4k2r/8/8/8/8/8/8/5K2 b k - 0 1").perft_test(6), 661072);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_perft_long_castling_gives_check() {
         // long castling gives check
         assert_eq!(Board::new("3k4/8/8/8/8/8/8/R3K3 w Q - 0 1").perft_test(6), 803711);
         assert_eq!(Board::new("r3k3/8/8/8/8/8/8/3K4 b q - 0 1").perft_test(6), 803711);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_perft_castling_including_rook_capture() {
         // castling (including losing cr due to rook capture)
         assert_eq!(Board::new("r3k2r/1b4bq/8/8/8/8/7B/R3K2R w KQkq - 0 1").perft_test(4), 1274206);
         assert_eq!(Board::new("r3k2r/7b/8/8/8/8/1B4BQ/R3K2R b KQkq - 0 1").perft_test(4), 1274206);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_perft_castling_promoted() {
         // castling prevented
         assert_eq!(Board::new("r3k2r/8/3Q4/8/8/5q2/8/R3K2R b KQkq - 0 1").perft_test(4), 1720476);
         assert_eq!(Board::new("r3k2r/8/5Q2/8/8/3q4/8/R3K2R w KQkq - 0 1").perft_test(4), 1720476);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_perft_promote_out_of_check() {
         // promote out of check:
         assert_eq!(Board::new("2K2r2/4P3/8/8/8/8/8/3k4 w - - 0 1").perft_test(6),3821001);
         assert_eq!(Board::new("3K4/8/8/8/8/8/4p3/2k2R2 b - - 0 1").perft_test(6),3821001);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_perft_discovered_check() {
         // discovered check:
         assert_eq!(Board::new("8/8/1P2K3/8/2n5/1q6/8/5k2 b - - 0 1").perft_test(5),1004658);
         assert_eq!(Board::new("5K2/8/1Q6/2N5/8/1p2k3/8/8 w - - 0 1").perft_test(5),1004658);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_perft_promote_to_give_check() {
         // promote to give check:
         assert_eq!(Board::new("4k3/1P6/8/8/8/8/K7/8 w - - 0 1").perft_test(6),217342);
         assert_eq!(Board::new("8/k7/8/8/8/8/1p6/4K3 b - - 0 1").perft_test(6),217342);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_perft_underpromote_to_check() {
         // underpromote to check:
         assert_eq!(Board::new("8/P1k5/K7/8/8/8/8/8 w - - 0 1").perft_test(6),92683);
         assert_eq!(Board::new("8/8/8/8/8/k7/p1K5/8 b - - 0 1").perft_test(6),92683);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_perft_self_stalemate() {
         // self stalemate:
         assert_eq!(Board::new("K1k5/8/P7/8/8/8/8/8 w - - 0 1").perft_test(6),2217);
         assert_eq!(Board::new("8/8/8/8/8/p7/8/k1K5 b - - 0 1").perft_test(6),2217);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_perft_stalemate_checkmate() {
         // stalemate/checkmate:
         assert_eq!(Board::new("8/k1P5/8/1K6/8/8/8/8 w - - 0 1").perft_test(7),567584);
         assert_eq!(Board::new("8/8/8/8/1k6/8/K1p5/8 b - - 0 1").perft_test(7),567584);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_perft_double_check() {
         // double check:
         assert_eq!(Board::new("8/8/2k5/5q2/5n2/8/5K2/8 b - - 0 1").perft_test(4),23527);
         assert_eq!(Board::new("8/5k2/8/5N2/5Q2/2K5/8/8 w - - 0 1").perft_test(4),23527);
