@@ -1413,10 +1413,11 @@ impl Board {
 
         let elapsed_time = start_time.elapsed();
         println!(
-            "Total nodes: {}, total time elapsed: {:.2?}, time per node: {:.6?}μs",
+            "Total nodes: {}, total time elapsed: {:.2?}, time per node: {:.6?}μs, NPS: {:.0}",
             total_nodes,
             elapsed_time,
-            (elapsed_time.as_secs_f64() / (total_nodes as f64)) * 1_000_000.0
+            (elapsed_time.as_secs_f64() / (total_nodes as f64)) * 1_000_000.0,
+            (total_nodes as f64) / (elapsed_time.as_secs_f64())
         );
 
         total_nodes
