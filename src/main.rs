@@ -34,21 +34,21 @@ fn main() {
     let mut board = Board::new("8/8/1k6/8/2pP4/8/5BK1/8 b - d3 0 1");
 
     // TODO check if king comes under attack after move
-    println!("{}", board);
-    let mut count = 0;
-    let mut moves = String::new();
-    for move_ in board.get_legal_moves() {
-        board.make_move(move_);
-        println!("{}\n{}", move_, board);
-        moves.push_str(&format!("{} ", move_));
-        board.undo_move();
-        count += 1;
-    }
-    moves.push_str("\n");
-    println!("{}", count);
-    println!("{}", moves);
+    // println!("{}", board);
+    // let mut count = 0;
+    // let mut moves = String::new();
+    // for move_ in board.get_legal_moves() {
+    //     board.make_move(move_);
+    //     println!("{}\n{}", move_, board);
+    //     moves.push_str(&format!("{} ", move_));
+    //     board.undo_move();
+    //     count += 1;
+    // }
+    // moves.push_str("\n");
+    // println!("{}", count);
+    // println!("{}", moves);
 
-    // board.perft_test(7);
+    board.perft_test(6);
     // println!();
     // board.make_move(castle_move);
     // println!("{}", board);

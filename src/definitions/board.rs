@@ -1,5 +1,6 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::time::Instant;
 
 use crate::definitions::bitboards::BitBoard;
 use crate::definitions::castling::{CastleType, Castling};
@@ -334,6 +335,7 @@ impl Board {
     }
 
     fn update_hash_given_playing_side(&mut self, side: Color) {
+        // FIXME: should be side_to_move
         self.position_key ^= ZOBRIST_TABLE[12][0];
     }
 
@@ -595,6 +597,37 @@ impl Board {
         let mut moves = Vec::new();
 
         if self.side_to_move == Color::White {
+            // White King
+            for white_king in &self.piece_list[Piece::WK as usize] {
+                if *white_king == Square::None {
+                    break;
+                }
+
+                for (x_offset, y_offset) in KING_OFFSETS.iter() {
+                    if self.is_square_attacked(
+                        &white_king.new_square(*x_offset, *y_offset),
+                        &Color::Black,
+                    ) {
+                        continue;
+                    }
+
+                    if let Some(index) = white_king.new_coor(*x_offset, *y_offset) {
+                        let piece = self.get_piece_at_index(index);
+                        if piece == Piece::None {
+                            #[rustfmt::skip]
+                            moves.push(Move::new(*white_king, index.into(), Piece::None, false, false, Piece::None, CastleType::None, Piece::WK));
+                        } else if piece_color(&piece) != Color::White {
+                            #[rustfmt::skip]
+                            moves.push(Move::new(*white_king, index.into(), piece, false, false, Piece::None, CastleType::None, Piece::WK));
+                        }
+                    }
+                }
+            }
+
+            if self.is_square_attacked(&self.king_square[Color::White as usize], &Color::Black) {
+                return moves;
+            }
+
             // White pawns
             for white_pawn in &self.piece_list[Piece::WP as usize] {
                 // The pawn is not on board
@@ -842,34 +875,38 @@ impl Board {
                     }
                 }
             }
-
-            // White King
-            for white_king in &self.piece_list[Piece::WK as usize] {
-                if *white_king == Square::None {
+        } else if self.side_to_move == Color::Black {
+            // Black King
+            for black_king in &self.piece_list[Piece::BK as usize] {
+                if *black_king == Square::None {
                     break;
                 }
 
                 for (x_offset, y_offset) in KING_OFFSETS.iter() {
                     if self.is_square_attacked(
-                        &white_king.new_square(*x_offset, *y_offset),
-                        &Color::Black,
+                        &black_king.new_square(*x_offset, *y_offset),
+                        &Color::White,
                     ) {
                         continue;
                     }
 
-                    if let Some(index) = white_king.new_coor(*x_offset, *y_offset) {
+                    if let Some(index) = black_king.new_coor(*x_offset, *y_offset) {
                         let piece = self.get_piece_at_index(index);
                         if piece == Piece::None {
                             #[rustfmt::skip]
-                            moves.push(Move::new(*white_king, index.into(), Piece::None, false, false, Piece::None, CastleType::None, Piece::WK));
-                        } else if piece_color(&piece) != Color::White {
+                            moves.push(Move::new(*black_king, index.into(), Piece::None, false, false, Piece::None, CastleType::None, Piece::BK));
+                        } else if piece_color(&piece) != Color::Black {
                             #[rustfmt::skip]
-                            moves.push(Move::new(*white_king, index.into(), piece, false, false, Piece::None, CastleType::None, Piece::WK));
+                            moves.push(Move::new(*black_king, index.into(), piece, false, false, Piece::None, CastleType::None, Piece::BK));
                         }
                     }
                 }
             }
-        } else if self.side_to_move == Color::Black {
+
+            if self.is_square_attacked(&self.king_square[Color::Black as usize], &Color::White) {
+                return moves;
+            }
+
             // Black pawns
             for black_pawn in &self.piece_list[Piece::BP as usize] {
                 if *black_pawn == Square::None {
@@ -1109,33 +1146,6 @@ impl Board {
                             break;
                         }
                         step += 1;
-                    }
-                }
-            }
-
-            // Black King
-            for black_king in &self.piece_list[Piece::BK as usize] {
-                if *black_king == Square::None {
-                    break;
-                }
-
-                for (x_offset, y_offset) in KING_OFFSETS.iter() {
-                    if self.is_square_attacked(
-                        &black_king.new_square(*x_offset, *y_offset),
-                        &Color::White,
-                    ) {
-                        continue;
-                    }
-
-                    if let Some(index) = black_king.new_coor(*x_offset, *y_offset) {
-                        let piece = self.get_piece_at_index(index);
-                        if piece == Piece::None {
-                            #[rustfmt::skip]
-                            moves.push(Move::new(*black_king, index.into(), Piece::None, false, false, Piece::None, CastleType::None, Piece::BK));
-                        } else if piece_color(&piece) != Color::Black {
-                            #[rustfmt::skip]
-                            moves.push(Move::new(*black_king, index.into(), piece, false, false, Piece::None, CastleType::None, Piece::BK));
-                        }
                     }
                 }
             }
@@ -1393,12 +1403,21 @@ impl Board {
     }
 
     pub fn perft_test(&mut self, max_depth: u32) -> u64 {
+        let start_time = Instant::now();
         let mut total_nodes = 0;
         for current_depth in 0..=max_depth {
             let nodes = self.perft(current_depth);
             println!("Depth {}: {} nodes", current_depth, nodes);
             total_nodes = nodes;
         }
+
+        let elapsed_time = start_time.elapsed();
+        println!(
+            "Total nodes: {}, total time elapsed: {:.2?}, time per node: {:.6?}μs",
+            total_nodes,
+            elapsed_time,
+            (elapsed_time.as_secs_f64() / (total_nodes as f64)) * 1_000_000.0
+        );
 
         total_nodes
     }

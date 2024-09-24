@@ -16,6 +16,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: cargo build --verbose
+        run: cargo run --verbose --release
       - name: Run tests
-        run: cargo test --verbose -- --test-threads=4
+        run: cargo test --verbose --release -- --test-threads=4
