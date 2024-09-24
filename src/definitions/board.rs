@@ -624,10 +624,6 @@ impl Board {
                 }
             }
 
-            if self.is_square_attacked(&self.king_square[Color::White as usize], &Color::Black) {
-                return moves;
-            }
-
             // White pawns
             for white_pawn in &self.piece_list[Piece::WP as usize] {
                 // The pawn is not on board
@@ -901,10 +897,6 @@ impl Board {
                         }
                     }
                 }
-            }
-
-            if self.is_square_attacked(&self.king_square[Color::Black as usize], &Color::White) {
-                return moves;
             }
 
             // Black pawns
