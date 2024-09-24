@@ -16,3 +16,13 @@ impl Display for Color {
         }
     }
 }
+
+impl Color {
+    pub fn flip(&self) -> Self {
+        match self {
+            Color::White => Color::Black,
+            Color::Black => Color::White,
+            Color::Both => Color::Both,
+        }
+    }
+}

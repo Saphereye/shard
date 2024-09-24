@@ -4,7 +4,7 @@ use std::fmt::{self, Display, Formatter};
 use std::ops::{Add, Sub};
 
 #[rustfmt::skip]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum Square {
     A1 = 0, B1, C1, D1, E1, F1, G1, H1,
     A2, B2, C2, D2, E2, F2, G2, H2,
