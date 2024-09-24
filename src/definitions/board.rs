@@ -1,6 +1,6 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::definitions::bitboards::BitBoard;
 use crate::definitions::castling::{CastleType, Castling};
@@ -1405,10 +1405,10 @@ impl Board {
 
         let elapsed_time = start_time.elapsed();
         println!(
-            "Total nodes: {}, total time elapsed: {:.2?}, time per node: {:.6?}μs, NPS: {:.0}",
+            "Total nodes: {}, total time elapsed: {:.2?}, time per node: {:.2?}, NPS: {:.0} n/s",
             total_nodes,
             elapsed_time,
-            (elapsed_time.as_secs_f64() / (total_nodes as f64)) * 1_000_000.0,
+            Duration::from_secs_f64((elapsed_time.as_secs_f64() / (total_nodes as f64))),
             (total_nodes as f64) / (elapsed_time.as_secs_f64())
         );
 
