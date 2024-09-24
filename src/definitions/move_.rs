@@ -48,7 +48,7 @@ impl Display for Move {
         notation.push_str(&self.from.to_string());
         notation.push_str(&self.to.to_string());
         if self.promoted_piece != Piece::None {
-            notation.push_str(&self.promoted_piece.to_string());
+            notation.push_str(&self.promoted_piece.to_string().to_lowercase());
         }
         write!(f, "{}", notation)
 

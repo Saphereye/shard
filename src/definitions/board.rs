@@ -175,6 +175,7 @@ fn flip_board(square_index: usize) -> usize {
 }
 
 impl_type_for_board!(&str);
+impl_type_for_board!(String);
 
 impl Default for Board {
     fn default() -> Self {
@@ -757,7 +758,7 @@ impl Board {
                     && !self.is_square_attacked(&Square::D1, &Color::Black)
                 {
                     #[rustfmt::skip]
-                    moves.push(Move::new(Square::A1, Square::D1, Piece::None, false, false, Piece::None, CastleType::QueenSide, Piece::WR));
+                    moves.push(Move::new(Square::E1, Square::C1, Piece::None, false, false, Piece::None, CastleType::QueenSide, Piece::WK));
                 }
 
                 // Rook castle king side
@@ -770,7 +771,7 @@ impl Board {
                     && !self.is_square_attacked(&Square::G1, &Color::Black)
                 {
                     #[rustfmt::skip]
-                    moves.push(Move::new(Square::H1, Square::F1, Piece::None, false, false, Piece::None, CastleType::KingSide, Piece::WR));
+                    moves.push(Move::new(Square::E1, Square::G1, Piece::None, false, false, Piece::None, CastleType::KingSide, Piece::WK));
                 }
             }
 
@@ -1026,9 +1027,10 @@ impl Board {
                     && !self.is_square_attacked(&Square::E8, &Color::White)
                     && !self.is_square_attacked(&Square::C8, &Color::White)
                     && !self.is_square_attacked(&Square::D8, &Color::White)
+                // Cheking is rook is attacked after castle, FIXME
                 {
                     #[rustfmt::skip]
-                    moves.push(Move::new(Square::A8, Square::D8, Piece::None, false, false, Piece::None, CastleType::QueenSide, Piece::BR));
+                    moves.push(Move::new(Square::E8, Square::C8, Piece::None, false, false, Piece::None, CastleType::QueenSide, Piece::BK));
                 }
 
                 // Rook castle king side
@@ -1041,7 +1043,7 @@ impl Board {
                     && !self.is_square_attacked(&Square::G8, &Color::White)
                 {
                     #[rustfmt::skip]
-                    moves.push(Move::new(Square::H8, Square::F8, Piece::None, false, false, Piece::None, CastleType::KingSide, Piece::BR));
+                    moves.push(Move::new(Square::E8, Square::G8, Piece::None, false, false, Piece::None, CastleType::KingSide, Piece::BK));
                 }
             }
 
@@ -1218,19 +1220,19 @@ impl Board {
         match move_.castle {
             CastleType::KingSide => {
                 if self.side_to_move == Color::White {
-                    self.transfer_piece(Square::E1, Square::G1);
+                    self.transfer_piece(Square::H1, Square::F1);
                     self.castle_permission &= !(Castling::WK as u32);
                 } else {
-                    self.transfer_piece(Square::E8, Square::G8);
+                    self.transfer_piece(Square::H8, Square::F8);
                     self.castle_permission &= !(Castling::BK as u32);
                 }
             }
             CastleType::QueenSide => {
                 if self.side_to_move == Color::White {
-                    self.transfer_piece(Square::E1, Square::C1);
+                    self.transfer_piece(Square::A1, Square::D1);
                     self.castle_permission &= !(Castling::WQ as u32);
                 } else {
-                    self.transfer_piece(Square::E8, Square::C8);
+                    self.transfer_piece(Square::A8, Square::D8);
                     self.castle_permission &= !(Castling::BQ as u32);
                 }
             }
@@ -1395,22 +1397,22 @@ impl Board {
     }
 
     pub fn perft_test(&mut self, max_depth: u32) -> u64 {
-        let start_time = Instant::now();
+        // let start_time = Instant::now();
         let mut total_nodes = 0;
         for current_depth in 0..=max_depth {
             let nodes = self.perft(current_depth);
-            println!("Depth {}: {} nodes", current_depth, nodes);
+            // println!("Depth {}: {} nodes", current_depth, nodes);
             total_nodes = nodes;
         }
 
-        let elapsed_time = start_time.elapsed();
-        println!(
-            "Total nodes: {}, total time elapsed: {:.2?}, time per node: {:.2?}, NPS: {:.0} n/s",
-            total_nodes,
-            elapsed_time,
-            Duration::from_secs_f64((elapsed_time.as_secs_f64() / (total_nodes as f64))),
-            (total_nodes as f64) / (elapsed_time.as_secs_f64())
-        );
+        // let elapsed_time = start_time.elapsed();
+        // println!(
+        //     "Total nodes: {}, total time elapsed: {:.2?}, time per node: {:.2?}, NPS: {:.0} n/s",
+        //     total_nodes,
+        //     elapsed_time,
+        //     Duration::from_secs_f64((elapsed_time.as_secs_f64() / (total_nodes as f64))),
+        //     (total_nodes as f64) / (elapsed_time.as_secs_f64())
+        // );
 
         total_nodes
     }
