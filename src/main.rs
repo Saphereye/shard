@@ -31,24 +31,24 @@ fn main() {
     // let mut board = Board::new("rnbqkbnr/ppp1p1pp/8/4P3/2p2p2/5P2/PPPPN1PP/RNBQK2R w KQkq - 0 6"); // Castling
     // let mut board = Board::new("8/P3k3/8/8/4p3/8/3K4/8 w - - 0 1"); // Endgame
     // let mut board = Board::new("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 ");
-    let mut board = Board::new("8/8/2k5/5q2/5n2/8/5K2/8 b - - 0 1");
+    let mut board = Board::new("8/8/1k6/8/2pP4/8/5BK1/8 b - d3 0 1");
 
     // TODO check if king comes under attack after move
     println!("{}", board);
-    // let mut count = 0;
-    // let mut moves = String::new();
-    // for move_ in board.get_legal_moves() {
-    //     board.make_move(move_);
-    //     println!("{}\n{}", move_, board);
-    //     moves.push_str(&format!("{} ", move_));
-    //     board.undo_move();
-    //     count += 1;
-    // }
-    // moves.push_str("\n");
-    // println!("{}", count);
-    // println!("{}", moves);
+    let mut count = 0;
+    let mut moves = String::new();
+    for move_ in board.get_legal_moves() {
+        board.make_move(move_);
+        println!("{}\n{}", move_, board);
+        moves.push_str(&format!("{} ", move_));
+        board.undo_move();
+        count += 1;
+    }
+    moves.push_str("\n");
+    println!("{}", count);
+    println!("{}", moves);
 
-    board.perft_test(7);
+    // board.perft_test(7);
     // println!();
     // board.make_move(castle_move);
     // println!("{}", board);

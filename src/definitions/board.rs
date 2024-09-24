@@ -953,12 +953,12 @@ impl Board {
                         && black_pawn.new_square(-1, -1) == self.en_passant_square
                     {
                         #[rustfmt::skip]
-                        moves.push(Move::new(*black_pawn, black_pawn.new_square(-1, -1), Piece::WP, false, false, Piece::None, CastleType::None, Piece::BP));
+                        moves.push(Move::new(*black_pawn, black_pawn.new_square(-1, -1), Piece::WP, true, false, Piece::None, CastleType::None, Piece::BP));
                     } else if self.get_piece_with_offset(&black_pawn, 1, 0) == Piece::WP
                         && black_pawn.new_square(1, -1) == self.en_passant_square
                     {
                         #[rustfmt::skip]
-                        moves.push(Move::new(*black_pawn, black_pawn.new_square(1, -1), Piece::WP, false, false, Piece::None, CastleType::None, Piece::BP));
+                        moves.push(Move::new(*black_pawn, black_pawn.new_square(1, -1), Piece::WP, true, false, Piece::None, CastleType::None, Piece::BP));
                     }
                 }
             }
