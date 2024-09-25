@@ -1,11 +1,12 @@
 use chess::{Board, BoardStatus, ChessMove, Color, Game, MoveGen, Piece, Square};
-use std::cmp::max;
+use rand::prelude::SliceRandom;
+use rand::thread_rng;
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-const SAFETY_MARGIN: u64 = 50;
+const SAFETY_MARGIN: u64 = 1;
 const DEFAULT_INCREMENT: u64 = 0;
 
 fn calculate_time_per_move(
@@ -112,8 +113,6 @@ fn main() {
                         increment,
                         SAFETY_MARGIN,
                     );
-
-                    println!("Time limit: {:?}", time_limit);
                 }
 
                 // Find and make the best move
@@ -164,38 +163,53 @@ fn find_best_move(
     let mut best_move = None;
     let mut best_score = i32::MIN;
     let mut nodes_searched: u128 = 0;
-    let mut previous_nodes_searched: u128 = 0;
-    let mut nodes_in_previous_layer: u128 = 1;
 
     let board = game.current_position();
     let start_time = Instant::now();
+    let mut rng = thread_rng();
 
-    for depth in 1..=7 {
-        let legal_moves = MoveGen::new_legal(&board);
-        let mut pv_line = vec![]; // PV line for the best sequence of moves
+    for depth in 1.. {
+        if start_time.elapsed() >= time_limit {
+            return best_move;
+        }
 
-        for mv in legal_moves {
+        let legal_moves: Vec<_> = MoveGen::new_legal(&board).collect();
+        let mut move_scores = Vec::new();
+
+        // Calculate the score for each move
+        for &mv in &legal_moves {
             let new_board = board.make_move_new(mv);
-
-            // Search the position recursively, retrieving the score
             let score = search(
                 &new_board,
                 depth - 1,
                 i32::MIN,
                 i32::MAX,
                 transposition_table,
-                &mut pv_line,
-                &mut nodes_searched, // Pass the mutable reference
+                &mut nodes_searched,
                 &start_time,
                 &time_limit,
             );
 
+            move_scores.push((mv, score));
             if score > best_score {
                 best_score = score;
                 best_move = Some(mv);
-                // Update the PV line with the current move
-                pv_line.insert(0, mv);
             }
+        }
+
+        // Introduce randomization by selecting a move based on weighted probabilities
+        let weighted_moves: Vec<_> = move_scores
+            .iter()
+            .map(|&(mv, score)| {
+                let weight = (score - best_score).max(0) as f64 + 1.0; // Weight moves by score
+                (mv, weight)
+            })
+            .collect();
+
+        if let Some(&(selected_move, _)) =
+            weighted_moves.choose_weighted(&mut rng, |item| item.1).ok()
+        {
+            best_move = Some(selected_move);
         }
 
         // Calculate elapsed time and nodes per second
@@ -208,18 +222,12 @@ fn find_best_move(
 
         // Print the info line with the updated PV
         println!(
-            "info depth {} seldepth {} multipv 1 score cp {} nodes {} nps {} hashfull 209 tbhits 0 time {} pv {}",
+            "info depth {} multipv 1 score cp {} nodes {} nps {} time {}",
             depth,
-            0, // seldepth can be modified based on your search logic
             best_score,
             nodes_searched,
             nps,
-            total_elapsed_time / 1_000, // Convert microseconds back to milliseconds for display
-            pv_line
-                .iter()
-                .map(|mv| format!("{}", mv))
-                .collect::<Vec<String>>()
-                .join(" ")
+            total_elapsed_time / 1_000,
         );
     }
 
@@ -231,8 +239,14 @@ fn quiescence_search(
     mut alpha: i32,
     beta: i32,
     transposition_table: &mut HashMap<Board, TranspositionTableEntry>,
-    nodes_searched: &mut u128, // Mutable reference to the nodes_searched counter
+    nodes_searched: &mut u128,
+    start_time: &Instant,
+    time_limit: &Duration,
 ) -> i32 {
+    if start_time.elapsed() >= *time_limit {
+        return 0;
+    }
+
     // Evaluate the static position (stand pat)
     let stand_pat = evaluate(board);
     *nodes_searched += 1;
@@ -261,6 +275,8 @@ fn quiescence_search(
                 -alpha,
                 transposition_table,
                 nodes_searched,
+                start_time,
+                time_limit,
             );
 
             if score >= beta {
@@ -282,8 +298,7 @@ fn search(
     mut alpha: i32,
     beta: i32,
     transposition_table: &mut HashMap<Board, TranspositionTableEntry>,
-    pv_line: &mut Vec<ChessMove>, // Mutable reference to the PV line
-    nodes_searched: &mut u128,    // Mutable reference to the nodes_searched counter
+    nodes_searched: &mut u128, // Mutable reference to the nodes_searched counter
     start_time: &Instant,
     time_limit: &Duration,
 ) -> i32 {
@@ -302,7 +317,15 @@ fn search(
 
     // If depth is 0, perform quiescence search
     if depth == 0 {
-        return quiescence_search(board, alpha, beta, transposition_table, nodes_searched);
+        return quiescence_search(
+            board,
+            alpha,
+            beta,
+            transposition_table,
+            nodes_searched,
+            start_time,
+            time_limit,
+        );
     }
 
     let mut best_score = i32::MIN;
@@ -317,7 +340,6 @@ fn search(
             -beta,
             -alpha,
             transposition_table,
-            pv_line,
             nodes_searched,
             start_time,
             time_limit,
