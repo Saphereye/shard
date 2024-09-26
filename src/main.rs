@@ -197,11 +197,18 @@ fn find_best_move(
             }
         }
 
-        // Introduce randomization by selecting a move based on weighted probabilities
+        let epsilon = 50; // Allow slight randomness within a margin of score difference
+        let best_score = move_scores
+            .iter()
+            .max_by_key(|(_, score)| *score)
+            .unwrap()
+            .1;
+
         let weighted_moves: Vec<_> = move_scores
             .iter()
+            .filter(|(_, score)| (*score - best_score).abs() <= epsilon) // Filter moves close to best score
             .map(|&(mv, score)| {
-                let weight = (score - best_score).max(0) as f64 + 1.0; // Weight moves by score
+                let weight = (score - best_score).max(0) as f64 + 1.0;
                 (mv, weight)
             })
             .collect();
@@ -234,6 +241,11 @@ fn find_best_move(
     best_move
 }
 
+fn is_check(board: &Board, mv: &ChessMove) -> bool {
+    let new_board = board.make_move_new(*mv);
+    return new_board.checkers().popcnt() != 0;
+}
+
 fn quiescence_search(
     board: &Board,
     mut alpha: i32,
@@ -262,7 +274,8 @@ fn quiescence_search(
     }
 
     // Generate all legal moves
-    let legal_moves = MoveGen::new_legal(board);
+    let legal_moves = MoveGen::new_legal(board)
+        .filter(|mv| board.piece_on(mv.get_dest()).is_some() || is_check(board, mv)); // Capture or check moves only
 
     for mv in legal_moves {
         // Check if the move is a capture by checking if the destination square has an opponent's piece
@@ -290,6 +303,47 @@ fn quiescence_search(
     }
 
     alpha
+}
+
+fn evaluate_move(board: &Board, mv: ChessMove) -> i32 {
+    let mut score = 0;
+
+    // Get destination square and the piece on it (if any)
+    if let Some(captured_piece) = board.piece_on(mv.get_dest()) {
+        // Reward capturing higher-value pieces
+        score += match captured_piece {
+            Piece::Pawn => PAWN_VALUE,
+            Piece::Knight => KNIGHT_VALUE,
+            Piece::Bishop => BISHOP_VALUE,
+            Piece::Rook => ROOK_VALUE,
+            Piece::Queen => QUEEN_VALUE,
+            _ => 0,
+        };
+    }
+
+    // Reward for promotions, assuming promoting to Queen is the best option
+    if let Some(promotion_piece) = mv.get_promotion() {
+        score += match promotion_piece {
+            Piece::Queen => QUEEN_VALUE,
+            Piece::Rook => ROOK_VALUE,
+            Piece::Bishop => BISHOP_VALUE,
+            Piece::Knight => KNIGHT_VALUE,
+            _ => 0,
+        };
+    }
+
+    // Check if the move results in a check and reward it
+    let next_board = board.make_move_new(mv);
+    if next_board.checkers().popcnt() > 0 {
+        score += 10000; // Arbitrary score for putting the opponent in check
+    }
+
+    // Positional value for the destination square
+    if let Some(moving_piece) = board.piece_on(mv.get_source()) {
+        score += positional_value(moving_piece, mv.get_dest());
+    }
+
+    score
 }
 
 fn search(
@@ -330,7 +384,8 @@ fn search(
 
     let mut best_score = i32::MIN;
     let mut best_move = None;
-    let legal_moves = MoveGen::new_legal(board);
+    let mut legal_moves: Vec<_> = MoveGen::new_legal(board).collect();
+    legal_moves.sort_by_key(|mv| evaluate_move(board, *mv)); // Simple heuristic for sorting
 
     for mv in legal_moves {
         let new_board = board.make_move_new(mv);
@@ -455,38 +510,49 @@ const KING_TABLE: [i32; 64] = [
     -30, -40, -40, -50, -50, -40, -40, -30
 ];
 
+#[rustfmt::skip]
 fn evaluate(board: &Board) -> i32 {
     let mut score = 0;
+    let multiplier = if board.side_to_move() == Color::White { 1 } else { -1 };
 
+    // Iterate over all squares to calculate piece value and positional score
     for sq in 0..64 {
         let sq: Square = unsafe { Square::new(sq) };
         if let Some(piece) = board.piece_on(sq) {
-            let value = match piece {
-                Piece::Pawn => PAWN_VALUE + positional_value(piece, sq),
-                Piece::Knight => KNIGHT_VALUE + positional_value(piece, sq),
-                Piece::Bishop => BISHOP_VALUE + positional_value(piece, sq),
-                Piece::Rook => ROOK_VALUE + positional_value(piece, sq),
-                Piece::Queen => QUEEN_VALUE + positional_value(piece, sq),
-                Piece::King => KING_VALUE + positional_value(piece, sq),
+            let base_value = match piece {
+                Piece::Pawn => PAWN_VALUE,
+                Piece::Knight => KNIGHT_VALUE,
+                Piece::Bishop => BISHOP_VALUE,
+                Piece::Rook => ROOK_VALUE,
+                Piece::Queen => QUEEN_VALUE,
+                _ => 0,
             };
 
-            if board.status() == BoardStatus::Checkmate {
-                if board.side_to_move() == Color::White {
-                    score = -20000;
-                } else {
-                    score = 20000;
-                }
-            }
+            // Add positional value based on piece-square tables
+            let positional_score = positional_value(piece, sq);
 
+            let total_value = base_value + positional_score;
+
+            // Accumulate score, positive for white, negative for black
             if board.color_on(sq) == Some(Color::White) {
-                score += value;
+                score += total_value;
             } else {
-                score -= value;
+                score -= total_value;
             }
         }
     }
 
-    score
+    // Apply a penalty or reward for being in check or checkmate
+    if board.checkers().popcnt() > 0 {
+        score += if board.side_to_move() == Color::White { -10000 } else { 10000 };
+    }
+
+    // Final adjustment for checkmate status
+    if board.status() == BoardStatus::Checkmate {
+        score = if board.side_to_move() == Color::White { -20000 } else { 20000 };
+    }
+
+    score * multiplier
 }
 
 fn positional_value(piece: Piece, square: Square) -> i32 {
