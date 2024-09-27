@@ -1,4 +1,9 @@
-use chess::*;
+
+
+
+Why is my chess engine so shit
+```rs shard/src/main.rs
+use chess::{Board, BoardStatus, ChessMove, Color, Game, MoveGen, Piece, Square};
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use std::collections::HashMap;
@@ -178,7 +183,7 @@ fn find_best_move(
 
         for &mv in &legal_moves {
             let new_board = board.make_move_new(mv);
-            let score = negamax(
+            let score = search(
                 &new_board,
                 depth - 1,
                 i32::MIN,
@@ -227,14 +232,14 @@ fn find_best_move(
             1
         };
 
-        // println!(
-        //     "info depth {} multipv 1 score cp {} nodes {} nps {} time {}",
-        //     depth,
-        //     current_best_score,
-        //     nodes_searched,
-        //     nps,
-        //     total_elapsed_time / 1_000,
-        // );
+        println!(
+            "info depth {} multipv 1 score cp {} nodes {} nps {} time {}",
+            depth,
+            current_best_score,
+            nodes_searched,
+            nps,
+            total_elapsed_time / 1_000,
+        );
     }
 
     best_move
@@ -332,11 +337,11 @@ fn evaluate_move(board: &Board, mv: ChessMove) -> i32 {
     score
 }
 
-fn negamax(
+fn search(
     board: &Board,
     depth: i32,
     mut alpha: i32,
-    mut beta: i32,
+    beta: i32,
     transposition_table: &mut HashMap<Board, TranspositionTableEntry>,
     nodes_searched: &mut u128,
     start_time: &Instant,
@@ -350,38 +355,32 @@ fn negamax(
 
     // Check the transposition table for existing entry
     if let Some(entry) = transposition_table.get(board) {
-        if entry.depth >= depth {
-            match entry.bound {
-                Bound::Exact => return entry.score,
-                Bound::LowerBound => {
-                    alpha = alpha.max(entry.score);
+        match entry.bound {
+            Bound::Exact => return entry.score,
+            Bound::LowerBound => {
+                if entry.score > alpha {
+                    alpha = entry.score;
                 }
-                Bound::UpperBound => {
-                    beta = beta.min(entry.score);
+            }
+            Bound::UpperBound => {
+                if entry.score < beta {
+                    return entry.score;
                 }
             }
         }
     }
 
     // If depth is 0, perform quiescence search
-    // if depth == 0 {
-    //     return quiescence_search(
-    //         board,
-    //         alpha,
-    //         beta,
-    //         transposition_table,
-    //         nodes_searched,
-    //         start_time,
-    //         time_limit,
-    //     );
-    // }
-    let multiplier = if board.side_to_move() == Color::White {
-        1
-    } else {
-        -1
-    };
     if depth == 0 {
-        return evaluate(board) * multiplier;
+        return quiescence_search(
+            board,
+            alpha,
+            beta,
+            transposition_table,
+            nodes_searched,
+            start_time,
+            time_limit,
+        );
     }
 
     // Generate and sort legal moves using the evaluate_move function
@@ -397,12 +396,12 @@ fn negamax(
         };
     }
 
-    let mut best_score = std::i32::MIN;
+    let mut best_score = i32::MIN;
 
     // Iterate over legal moves using alpha-beta pruning
     for mv in legal_moves {
         let new_board = board.make_move_new(mv);
-        let score = -negamax(
+        let score = -search(
             &new_board,
             depth - 1,
             -beta,
@@ -544,32 +543,6 @@ const KING_TABLE: [i32; 64] = [
 fn evaluate(board: &Board) -> i32 {
     let mut score = 0;
     let is_white_turn = board.side_to_move() == Color::White;
-    let mut white_king_safety = 0;
-    let mut black_king_safety = 0;
-    let mut white_pawn_structure = 0;
-    let mut black_pawn_structure = 0;
-    let mut white_mobility = 0;
-    let mut black_mobility = 0;
-    let mut white_center_control = 0;
-    let mut black_center_control = 0;
-    let mut white_rook_bonus = 0;
-    let mut black_rook_bonus = 0;
-    let mut white_bishop_pair_bonus = 0;
-    let mut black_bishop_pair_bonus = 0;
-
-    // Squares representing the center
-    let center_squares = [Square::E4, Square::D4, Square::E5, Square::D5];
-
-    let black_bishops = (board.pieces(Piece::Bishop) & board.color_combined(Color::Black)).popcnt();
-    let white_bishops = (board.pieces(Piece::Bishop) & board.color_combined(Color::White)).popcnt();
-
-    if white_bishops >= 2 {
-        white_bishop_pair_bonus = 50; // Reward for bishop pair
-    }
-
-    if black_bishops >= 2 {
-        black_bishop_pair_bonus = 50; // Reward for bishop pair
-    }
 
     // Iterate over all squares to calculate piece value and positional score
     for sq in 0..64 {
@@ -581,7 +554,7 @@ fn evaluate(board: &Board) -> i32 {
                 Piece::Bishop => BISHOP_VALUE,
                 Piece::Rook => ROOK_VALUE,
                 Piece::Queen => QUEEN_VALUE,
-                Piece::King => 0, // King has no base value, but we'll consider king safety separately
+                _ => 0,
             };
 
             // Positional value based on the side (flip for Black)
@@ -599,52 +572,6 @@ fn evaluate(board: &Board) -> i32 {
 
             // Accumulate score, positive for white, negative for black
             score += total_value;
-
-            // King safety
-            if piece == Piece::King {
-                if board.color_on(sq) == Some(Color::White) {
-                    white_king_safety += king_safety_score(sq, board);
-                } else {
-                    black_king_safety += king_safety_score(sq, board);
-                }
-            }
-
-            // Pawn structure (isolated, doubled, passed)
-            if piece == Piece::Pawn {
-                if board.color_on(sq) == Some(Color::White) {
-                    white_pawn_structure += pawn_structure_score(sq, board);
-                } else {
-                    black_pawn_structure += pawn_structure_score(sq, board);
-                }
-            }
-
-            // Piece mobility (count legal moves)
-            let mobility = MoveGen::new_legal(&board).filter(|m| m.get_source() == sq).count() as i32;
-            if board.color_on(sq) == Some(Color::White) {
-                white_mobility += mobility;
-            } else {
-                black_mobility += mobility;
-            }
-
-            // Control of key squares (center control)
-            if center_squares.contains(&sq) {
-                if board.color_on(sq) == Some(Color::White) {
-                    white_center_control += 25;
-                } else {
-                    black_center_control += 25;
-                }
-            }
-
-            // Rook on open files
-            if piece == Piece::Rook {
-                if rook_on_open_file(sq, board) {
-                    if board.color_on(sq) == Some(Color::White) {
-                        white_rook_bonus += 50;
-                    } else {
-                        black_rook_bonus += 50;
-                    }
-                }
-            }
         }
     }
 
@@ -658,123 +585,7 @@ fn evaluate(board: &Board) -> i32 {
         score = if is_white_turn { -20000 } else { 20000 };
     }
 
-    // Combine king safety, pawn structure, mobility, and other factors into the final score
-    score += white_king_safety - black_king_safety;
-    score += white_pawn_structure - black_pawn_structure;
-    score += white_mobility - black_mobility;
-    score += white_center_control - black_center_control;
-    score += white_rook_bonus - black_rook_bonus;
-    score += white_bishop_pair_bonus - black_bishop_pair_bonus;
-
     score
-}
-
-// Corrected king_safety_score, pawn_structure_score, and rook_on_open_file functions
-// Example function for calculating king safety
-fn king_safety_score(king_sq: Square, board: &Board) -> i32 {
-    let mut score = 0;
-
-    // Penalize the king for being too exposed (based on rank/file)
-    let king_rank = king_sq.get_rank();
-    let king_file = king_sq.get_file();
-
-    // Simple heuristic: kings are safer near the center and with pawns in front of them
-    let king_center_distance =
-        (king_rank.to_index() as i32 - 3).abs() + (king_file.to_index() as i32 - 3).abs();
-    score -= king_center_distance * 10; // Penalize distance from the center
-
-    // Check if the king has a pawn shield (pawns in front of the king)
-    for file_offset in -1..=1 {
-        let new_file = (king_file.to_index() as i32 + file_offset).clamp(0, 7) as u8;
-        let shield_sq = Square::make_square(
-            Rank::from_index(king_rank.to_index() - 1),
-            File::from_index(new_file as usize),
-        );
-        if let Some(piece) = board.piece_on(shield_sq) {
-            if piece == Piece::Pawn {
-                score += 50; // Reward for having pawn shield
-            }
-        }
-    }
-
-    // Penalize if king is on an open file or near an enemy rook
-    let rook_check = MoveGen::new_legal(board)
-        .filter(|&mv| {
-            board.piece_on(mv.get_dest()) == Some(Piece::Rook)
-                && board.color_on(mv.get_dest()) != board.color_on(king_sq)
-        })
-        .count();
-    score -= rook_check as i32 * 100; // Penalize if threatened by rooks
-
-    score
-}
-
-// Example function for calculating pawn structure score
-fn pawn_structure_score(pawn_sq: Square, board: &Board) -> i32 {
-    let mut score = 0;
-
-    let pawn_rank = pawn_sq.get_rank();
-    let pawn_file = pawn_sq.get_file();
-
-    // Penalize isolated pawns (no pawns on adjacent files)
-    let is_isolated = |file: File| -> bool {
-        for rank_index in 0..8 {
-            let sq = Square::make_square(Rank::from_index(rank_index), file);
-            if board.piece_on(sq) == Some(Piece::Pawn) {
-                return false;
-            }
-        }
-        true
-    };
-
-    if (pawn_file == File::A || is_isolated(File::from_index(pawn_file.to_index() - 1)))
-        && (pawn_file == File::H || is_isolated(File::from_index(pawn_file.to_index() + 1)))
-    {
-        score -= 50; // Isolated pawn penalty
-    }
-
-    // Penalize doubled pawns (more than one pawn on the same file)
-    let pawn_on_same_file = MoveGen::new_legal(board)
-        .filter(|&mv| {
-            mv.get_dest().get_file() == pawn_file
-                && board.piece_on(mv.get_dest()) == Some(Piece::Pawn)
-        })
-        .count();
-    if pawn_on_same_file > 1 {
-        score -= 30; // Doubled pawn penalty
-    }
-
-    // Reward passed pawns (no enemy pawns in front of them)
-    let is_passed_pawn = |file: File| -> bool {
-        for rank_index in (pawn_rank.to_index() + 1)..8 {
-            let sq = Square::make_square(Rank::from_index(rank_index), file);
-            if board.piece_on(sq) == Some(Piece::Pawn) {
-                return false;
-            }
-        }
-        true
-    };
-
-    if is_passed_pawn(pawn_file) {
-        score += 100; // Passed pawn reward
-    }
-
-    score
-}
-
-// Example function for checking if a rook is on an open file
-fn rook_on_open_file(rook_sq: Square, board: &Board) -> bool {
-    let rook_file = rook_sq.get_file();
-
-    // An open file means no pawns on the rook's file
-    for rank_index in 0..8 {
-        let sq = Square::make_square(Rank::from_index(rank_index), rook_file);
-        if board.piece_on(sq) == Some(Piece::Pawn) {
-            return false; // Not an open file
-        }
-    }
-
-    true // Open file if no pawns found
 }
 
 fn positional_value(piece: Piece, square: Square) -> i32 {
@@ -789,3 +600,135 @@ fn positional_value(piece: Piece, square: Square) -> i32 {
         Piece::King => KING_TABLE[index],
     }
 }
+```
+
+
+
+Creating a strong chess engine is a complex task that involves many aspects of computer science, including algorithms, data structures, and optimization techniques. Based on the provided code, here are some potential reasons why your chess engine might not be performing well:
+
+1. **Evaluation Function**:
+   - The evaluation function is quite basic. It only considers material and some positional values. Stronger engines use more sophisticated evaluation functions that consider factors like king safety, pawn structure, piece mobility, control of key squares, etc.
+
+2. **Search Depth**:
+   - The depth of the search might be too shallow. The deeper the search, the better the engine can evaluate positions. However, deeper searches require more computational power and time.
+
+3. **Move Ordering**:
+   - Move ordering can significantly impact the efficiency of alpha-beta pruning. Your move ordering is based on a simple evaluation of captures and checks. More advanced techniques like history heuristics, killer moves, and principal variation search can improve move ordering.
+
+4. **Quiescence Search**:
+   - The quiescence search only considers captures and checks. This can lead to the horizon effect, where the engine misses important tactical sequences. Extending the quiescence search to include more types of moves can help mitigate this.
+
+5. **Transposition Table**:
+   - The transposition table implementation is basic. More advanced techniques like Zobrist hashing for board positions and more sophisticated replacement schemes can improve performance.
+
+6. **Time Management**:
+   - The time management is very simplistic. Strong engines dynamically adjust their search depth and time allocation based on the game phase and position complexity.
+
+7. **Lack of Advanced Techniques**:
+   - Techniques like iterative deepening, null move pruning, late move reductions, and aspiration windows are not implemented. These techniques can significantly enhance the performance of the search algorithm.
+
+Here are some specific suggestions to improve your engine:
+
+### Improve Evaluation Function
+Enhance the evaluation function to consider more factors:
+- King safety
+- Pawn structure (isolated, doubled, passed pawns)
+- Piece mobility
+- Control of key squares (e.g., center control)
+- Rook on open files
+- Bishop pair advantage
+
+### Enhance Move Ordering
+Implement more advanced move ordering techniques:
+- History heuristic: Track the success of moves in the search tree and prioritize moves that have historically caused beta cutoffs.
+- Killer move heuristic: Track moves that cause beta cutoffs at the same depth and prioritize them.
+- Principal variation search: Use the best move from the previous iteration as the first move in the current iteration.
+
+### Improve Quiescence Search
+Extend the quiescence search to include more types of moves, such as:
+- Checks
+- Threats (moves that create immediate threats)
+
+### Optimize Transposition Table
+Use Zobrist hashing to efficiently hash board positions and implement a more sophisticated replacement scheme (e.g., always replace, depth-based replacement).
+
+### Implement Advanced Search Techniques
+- **Iterative Deepening**: Perform a series of depth-limited searches, increasing the depth with each iteration. This helps with move ordering and time management.
+- **Null Move Pruning**: Assume the opponent will pass their turn and see if the current player can still achieve a good position. If so, prune the branch.
+- **Late Move Reductions**: Reduce the search depth for moves that are considered less likely to be good (e.g., moves that are not captures or checks).
+- **Aspiration Windows**: Use a narrow window around the expected score to speed up alpha-beta search. If the score falls outside the window, re-search with a wider window.
+
+### Example: Improved Evaluation Function
+Here's an example of how you might improve the evaluation function:
+
+```rust
+fn evaluate(board: &Board) -> i32 {
+    let mut score = 0;
+    let is_white_turn = board.side_to_move() == Color::White;
+
+    // Iterate over all squares to calculate piece value and positional score
+    for sq in 0..64 {
+        let sq: Square = unsafe { Square::new(sq) };
+        if let Some(piece) = board.piece_on(sq) {
+            let base_value = match piece {
+                Piece::Pawn => PAWN_VALUE,
+                Piece::Knight => KNIGHT_VALUE,
+                Piece::Bishop => BISHOP_VALUE,
+                Piece::Rook => ROOK_VALUE,
+                Piece::Queen => QUEEN_VALUE,
+                _ => 0,
+            };
+
+            // Positional value based on the side (flip for Black)
+            let positional_score = if board.color_on(sq) == Some(Color::White) {
+                positional_value(piece, sq)
+            } else {
+                -positional_value(piece, sq)
+            };
+
+            let total_value = if board.color_on(sq) == Some(Color::White) {
+                base_value + positional_score
+            } else {
+                -(base_value + positional_score)
+            };
+
+            // Accumulate score, positive for white, negative for black
+            score += total_value;
+        }
+    }
+
+    // Apply a penalty/reward for being in check or checkmate
+    if board.checkers().popcnt() > 0 {
+        score += if is_white_turn { -10000 } else { 10000 }; // Penalty for being in check
+    }
+
+    // Checkmate condition
+    if board.status() == BoardStatus::Checkmate {
+        score = if is_white_turn { -20000 } else { 20000 };
+    }
+
+    // Additional evaluation factors
+    score += evaluate_king_safety(board);
+    score += evaluate_pawn_structure(board);
+    score += evaluate_piece_mobility(board);
+
+    score
+}
+
+fn evaluate_king_safety(board: &Board) -> i32 {
+    // Implement king safety evaluation
+    0
+}
+
+fn evaluate_pawn_structure(board: &Board) -> i32 {
+    // Implement pawn structure evaluation
+    0
+}
+
+fn evaluate_piece_mobility(board: &Board) -> i32 {
+    // Implement piece mobility evaluation
+    0
+}
+```
+
+By addressing these areas, you can significantly improve the strength and performance of your chess engine.
