@@ -1,5 +1,5 @@
 use chess::*;
-use rand::prelude::SliceRandom;
+use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
@@ -155,18 +155,29 @@ fn uci_to_move(uci: &str) -> Result<ChessMove, String> {
     Ok(ChessMove::new(from, to, promotion))
 }
 
+const MAX_DEPTH: usize = 64;
+
 fn find_best_move(
     game: &mut Game,
     time_limit: Duration,
-    transposition_table: &mut HashMap<Board, TranspositionTableEntry>,
+    mut transposition_table: &mut HashMap<Board, TranspositionTableEntry>,
 ) -> Option<ChessMove> {
     let mut best_move = None;
-    let mut best_score: Option<i32> = None; // Use Option to avoid initializing to i32::MIN
-    let mut nodes_searched: u128 = 0;
 
     let board = game.current_position();
     let start_time = Instant::now();
     let mut rng = thread_rng();
+
+    let mut nodes_searched = 0;
+
+    // History heuristic table: [Piece][Destination] -> Score
+    let mut history_heuristic = vec![vec![0; 64]; 12];
+
+    // Killer moves: Track two moves for each depth
+    let mut killer_moves = vec![vec![None; 2]; MAX_DEPTH];
+
+    // Principal Variation (PV) tracking
+    let pv_table: Vec<Option<ChessMove>> = vec![None; MAX_DEPTH];
 
     for depth in 1.. {
         if start_time.elapsed() >= time_limit {
@@ -174,29 +185,34 @@ fn find_best_move(
         }
 
         let legal_moves: Vec<_> = MoveGen::new_legal(&board).collect();
-        let mut move_scores = Vec::new();
+        let mut move_scores: Vec<(ChessMove, i32)> = Vec::new();
 
-        for &mv in &legal_moves {
+        legal_moves.iter().for_each(|&mv| {
             let new_board = board.make_move_new(mv);
+
             let score = negamax(
                 &new_board,
                 depth - 1,
-                i32::MIN,
-                i32::MAX,
-                transposition_table,
+                -20000,
+                20000,
+                &mut transposition_table,
                 &mut nodes_searched,
                 &start_time,
                 &time_limit,
+                1,
             );
 
-            // println!("Move: {:?}, Score: {}", mv, score); // Logging move and score
-
-            move_scores.push((mv, score));
-            if best_score.is_none() || score > best_score.unwrap() {
-                best_score = Some(score);
-                best_move = Some(mv);
+            // Apply killer moves boost
+            if killer_moves[depth].contains(&Some(mv)) {
+                let boosted_score = score + 50;
+                move_scores.push((mv, boosted_score));
+            } else {
+                move_scores.push((mv, score));
             }
-        }
+        });
+
+        // Sort moves by score and apply Principal Variation Search
+        move_scores.sort_by_key(|&(_, score)| -score); // Sort in descending order
 
         let epsilon = 50;
         let current_best_score = move_scores
@@ -214,11 +230,46 @@ fn find_best_move(
             })
             .collect();
 
+        // Use weighted random selection for slightly worse moves
         if let Some(&(selected_move, _)) =
             weighted_moves.choose_weighted(&mut rng, |item| item.1).ok()
         {
             best_move = Some(selected_move);
         }
+
+        // Update history heuristic for this move
+        if let Some(best_mv) = best_move {
+            let piece = board.piece_on(best_mv.get_source()).unwrap();
+            let dest_square = best_mv.get_dest().to_index();
+            history_heuristic[piece as usize][dest_square] += depth as i32;
+        }
+
+        // Update killer moves
+        if let Some(best_mv) = best_move {
+            if let Some(killer1) = killer_moves[depth][0] {
+                if best_mv != killer1 {
+                    killer_moves[depth][1] = Some(best_mv); // Store as the second killer move
+                }
+            } else {
+                killer_moves[depth][0] = Some(best_mv); // Store as the first killer move
+            }
+        }
+
+        // Print the Principal Variation
+        let mut pv_moves = vec![];
+        for d in 1..=depth {
+            if let Some(mv) = pv_table[d] {
+                pv_moves.push(mv);
+            } else {
+                break;
+            }
+        }
+
+        let pv_str: String = pv_moves
+            .iter()
+            .map(|mv| format!("{}", mv))
+            .collect::<Vec<String>>()
+            .join(" ");
 
         let total_elapsed_time = start_time.elapsed().as_micros();
         let nps = if total_elapsed_time != 0 {
@@ -227,22 +278,18 @@ fn find_best_move(
             1
         };
 
-        // println!(
-        //     "info depth {} multipv 1 score cp {} nodes {} nps {} time {}",
-        //     depth,
-        //     current_best_score,
-        //     nodes_searched,
-        //     nps,
-        //     total_elapsed_time / 1_000,
-        // );
+        println!(
+            "info depth {} multipv 1 score cp {} nodes {} nps {} time {} pv {}",
+            depth,
+            current_best_score,
+            nodes_searched,
+            nps,
+            total_elapsed_time / 1_000,
+            pv_str,
+        );
     }
 
     best_move
-}
-
-fn is_check(board: &Board, mv: &ChessMove) -> bool {
-    let new_board = board.make_move_new(*mv);
-    return new_board.checkers().popcnt() != 0;
 }
 
 fn quiescence_search(
@@ -250,16 +297,18 @@ fn quiescence_search(
     mut alpha: i32,
     beta: i32,
     transposition_table: &mut HashMap<Board, TranspositionTableEntry>,
-    nodes_searched: &mut u128,
+    nodes_searched: &mut u64,
     start_time: &Instant,
     time_limit: &Duration,
+    color: i32,
+    depth: usize,
 ) -> i32 {
+    let stand_pat = evaluate(board, depth);
     if start_time.elapsed() >= *time_limit {
-        return evaluate(board); // Return static evaluation on time cutoff
+        return stand_pat;
     }
 
     // Evaluate the static position (stand pat)
-    let stand_pat = evaluate(board);
     *nodes_searched += 1;
 
     if stand_pat >= beta {
@@ -270,10 +319,9 @@ fn quiescence_search(
         alpha = stand_pat;
     }
 
-    let legal_moves = MoveGen::new_legal(board)
-        .filter(|mv| board.piece_on(mv.get_dest()).is_some() || is_check(board, mv));
-
-    for mv in legal_moves {
+    for mv in MoveGen::new_legal(board)
+        .filter(|mv| board.piece_on(mv.get_dest()).is_some() || board.checkers().popcnt() > 0)
+    {
         if board.piece_on(mv.get_dest()).is_some() {
             let new_board = board.make_move_new(mv);
             let score = -quiescence_search(
@@ -284,6 +332,8 @@ fn quiescence_search(
                 nodes_searched,
                 start_time,
                 time_limit,
+                -color,
+                depth + 1,
             );
 
             if score >= beta {
@@ -329,24 +379,31 @@ fn evaluate_move(board: &Board, mv: ChessMove) -> i32 {
         score += positional_value(moving_piece, mv.get_dest());
     }
 
+    if next_board.status() == BoardStatus::Checkmate {
+        score += 20000;
+    }
+
     score
 }
 
 fn negamax(
     board: &Board,
-    depth: i32,
+    depth: usize,
     mut alpha: i32,
     mut beta: i32,
     transposition_table: &mut HashMap<Board, TranspositionTableEntry>,
-    nodes_searched: &mut u128,
+    nodes_searched: &mut u64,
     start_time: &Instant,
     time_limit: &Duration,
+    color: i32, // 1 for white, -1 for black
 ) -> i32 {
     if start_time.elapsed() >= *time_limit {
         return 0;
     }
 
     *nodes_searched += 1;
+
+    let alpha_original = alpha;
 
     // Check the transposition table for existing entry
     if let Some(entry) = transposition_table.get(board) {
@@ -360,49 +417,44 @@ fn negamax(
                     beta = beta.min(entry.score);
                 }
             }
+
+            if alpha >= beta {
+                return entry.score;
+            }
         }
     }
 
+    if board.status() == BoardStatus::Checkmate || board.status() == BoardStatus::Stalemate {
+        return evaluate(board, depth) * color;
+    }
+
     // If depth is 0, perform quiescence search
-    // if depth == 0 {
-    //     return quiescence_search(
-    //         board,
-    //         alpha,
-    //         beta,
-    //         transposition_table,
-    //         nodes_searched,
-    //         start_time,
-    //         time_limit,
-    //     );
-    // }
-    let multiplier = if board.side_to_move() == Color::White {
-        1
-    } else {
-        -1
-    };
     if depth == 0 {
-        return evaluate(board) * multiplier;
+        return quiescence_search(
+            board,
+            alpha,
+            beta,
+            transposition_table,
+            nodes_searched,
+            start_time,
+            time_limit,
+            color,
+            0,
+        );
     }
 
     // Generate and sort legal moves using the evaluate_move function
     let mut legal_moves: Vec<_> = MoveGen::new_legal(board).collect();
     legal_moves.sort_by_key(|mv| evaluate_move(board, *mv));
 
-    // Handle no legal moves (checkmate or stalemate)
-    if legal_moves.is_empty() {
-        return if board.checkers().popcnt() > 0 {
-            -20000 + depth // Checkmate
-        } else {
-            0 // Stalemate
-        };
-    }
+    assert!(!legal_moves.is_empty());
 
-    let mut best_score = std::i32::MIN;
+    let mut score = -20000;
 
     // Iterate over legal moves using alpha-beta pruning
     for mv in legal_moves {
         let new_board = board.make_move_new(mv);
-        let score = -negamax(
+        let move_score = -negamax(
             &new_board,
             depth - 1,
             -beta,
@@ -411,24 +463,15 @@ fn negamax(
             nodes_searched,
             start_time,
             time_limit,
+            -color,
         );
 
-        if score >= beta {
-            // Store the score as an upper bound
-            transposition_table.insert(
-                *board,
-                TranspositionTableEntry {
-                    score,
-                    depth,
-                    bound: Bound::UpperBound,
-                },
-            );
-            return beta; // Beta cut-off
-        }
+        score = score.max(move_score);
 
-        if score > best_score {
-            best_score = score;
-            alpha = alpha.max(best_score); // Update alpha
+        alpha = alpha.max(score);
+
+        if alpha >= beta {
+            break;
         }
     }
 
@@ -436,9 +479,11 @@ fn negamax(
     transposition_table.insert(
         *board,
         TranspositionTableEntry {
-            score: best_score,
+            score,
             depth,
-            bound: if best_score <= alpha {
+            bound: if score <= alpha_original {
+                Bound::UpperBound
+            } else if score >= beta {
                 Bound::LowerBound
             } else {
                 Bound::Exact
@@ -446,7 +491,7 @@ fn negamax(
         },
     );
 
-    best_score
+    score
 }
 
 enum Bound {
@@ -457,7 +502,7 @@ enum Bound {
 
 struct TranspositionTableEntry {
     score: i32,
-    depth: i32,
+    depth: usize,
     bound: Bound, // Stores if it's a bound or exact score
 }
 
@@ -466,7 +511,6 @@ const KNIGHT_VALUE: i32 = 320;
 const BISHOP_VALUE: i32 = 330;
 const ROOK_VALUE: i32 = 500;
 const QUEEN_VALUE: i32 = 900;
-const KING_VALUE: i32 = 20000;
 
 #[rustfmt::skip]
 const PAWN_TABLE: [i32; 64] = [
@@ -540,10 +584,20 @@ const KING_TABLE: [i32; 64] = [
     -30, -40, -40, -50, -50, -40, -40, -30
 ];
 
-#[rustfmt::skip]
-fn evaluate(board: &Board) -> i32 {
-    let mut score = 0;
+fn evaluate(board: &Board, depth: usize) -> i32 {
     let is_white_turn = board.side_to_move() == Color::White;
+    // Checkmate condition
+    if board.status() == BoardStatus::Checkmate {
+        return if is_white_turn {
+            -20000 + depth as i32
+        } else {
+            20000 - depth as i32
+        };
+    } else if board.status() == BoardStatus::Stalemate {
+        return 0;
+    }
+
+    let mut score = 0;
     let mut white_king_safety = 0;
     let mut black_king_safety = 0;
     let mut white_pawn_structure = 0;
@@ -619,7 +673,9 @@ fn evaluate(board: &Board) -> i32 {
             }
 
             // Piece mobility (count legal moves)
-            let mobility = MoveGen::new_legal(&board).filter(|m| m.get_source() == sq).count() as i32;
+            let mobility = MoveGen::new_legal(&board)
+                .filter(|m| m.get_source() == sq)
+                .count() as i32;
             if board.color_on(sq) == Some(Color::White) {
                 white_mobility += mobility;
             } else {
@@ -648,14 +704,9 @@ fn evaluate(board: &Board) -> i32 {
         }
     }
 
-    // Apply a penalty/reward for being in check or checkmate
+    // Apply a penalty/reward for being in check
     if board.checkers().popcnt() > 0 {
         score += if is_white_turn { -10000 } else { 10000 }; // Penalty for being in check
-    }
-
-    // Checkmate condition
-    if board.status() == BoardStatus::Checkmate {
-        score = if is_white_turn { -20000 } else { 20000 };
     }
 
     // Combine king safety, pawn structure, mobility, and other factors into the final score
