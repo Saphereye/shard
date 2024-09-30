@@ -1,7 +1,8 @@
 [package]
 name = "shard"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
+authors = ["Saphereye <adarshdas950@gmail.com>"]
 
 [dependencies]
 chess = "3.2.0"

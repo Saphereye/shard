@@ -9,6 +9,10 @@ use std::time::{Duration, Instant};
 const SAFETY_MARGIN: u64 = 1;
 const DEFAULT_INCREMENT: u64 = 0;
 
+pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+pub const AUTHORS: &'static str = env!("CARGO_PKG_AUTHORS");
+pub const NAME: &'static str = env!("CARGO_PKG_NAME");
+
 fn calculate_time_per_move(
     is_white: bool,
     wtime: u64,
@@ -45,8 +49,8 @@ fn main() {
 
         match tokens[0] {
             "uci" => {
-                println!("id name Shard");
-                println!("id author Saphereye");
+                println!("id name {} {}", NAME, VERSION);
+                println!("id author {}", AUTHORS);
                 println!("uciok");
             }
             "isready" => {
@@ -190,7 +194,7 @@ fn find_best_move(
         legal_moves.iter().for_each(|&mv| {
             let new_board = board.make_move_new(mv);
 
-            let score = negamax(
+            let score = -negamax(
                 &new_board,
                 depth - 1,
                 -20000,

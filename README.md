@@ -23,7 +23,7 @@ Extend the quiescence search to include more types of moves, such as:
 - [ ] Threats (moves that create immediate threats)
 
 ### Optimize Transposition Table
-Use Zobrist hashing to efficiently hash board positions and implement a more sophisticated replacement scheme (e.g., always replace, depth- [ based replacement).
+- [ ] Use Zobrist hashing to efficiently hash board positions and implement a more sophisticated replacement scheme (e.g., always replace, depth- [ based replacement).
 
 ### Implement Advanced Search Techniques
 - [X] **Iterative Deepening**: Perform a series of depth- [ limited searches, increasing the depth with each iteration. This helps with move ordering and time management.
