@@ -1,5 +1,6 @@
 # Shard Chess Engine
-![](https://github.com/Saphereye/shard/blob/main/assets/demo.png)
+<img src="https://github.com/Saphereye/shard/blob/main/assets/demo.png" width="500" />
+
 *Shard Vs Shard (Shard Wins)*
 
 ## Introduction
