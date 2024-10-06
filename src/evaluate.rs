@@ -163,7 +163,7 @@ pub fn evaluate_board(board: &Board) -> i64 {
             }
 
             // Piece mobility (count legal moves)
-            let mobility = MoveGen::new_legal(&board)
+            let mobility = MoveGen::new_legal(board)
                 .filter(|m| m.get_source() == sq)
                 .count() as i32;
             if board.color_on(sq) == Some(Color::White) {
@@ -182,13 +182,11 @@ pub fn evaluate_board(board: &Board) -> i64 {
             }
 
             // Rook on open files
-            if piece == Piece::Rook {
-                if rook_on_open_file(sq, board) {
-                    if board.color_on(sq) == Some(Color::White) {
-                        white_rook_bonus += 50;
-                    } else {
-                        black_rook_bonus += 50;
-                    }
+            if piece == Piece::Rook && rook_on_open_file(sq, board) {
+                if board.color_on(sq) == Some(Color::White) {
+                    white_rook_bonus += 50;
+                } else {
+                    black_rook_bonus += 50;
                 }
             }
         }

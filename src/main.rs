@@ -12,7 +12,7 @@ use evaluate::evaluate_board;
 mod uci;
 use uci::*;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct Node {
     board: Board,
     total_score: i64,
@@ -22,22 +22,9 @@ struct Node {
     move_to_reach: Option<ChessMove>,
 }
 
-impl Default for Node {
-    fn default() -> Self {
-        Self {
-            board: Board::default(),
-            total_score: 0,
-            number_of_visits: 0,
-            first_child: None,
-            next_sibling: None,
-            move_to_reach: None,
-        }
-    }
-}
-
 impl Debug for Node {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln!(f, "")?;
+        writeln!(f)?;
         self.fmt_with_indent(f, 0)
     }
 }
@@ -201,9 +188,9 @@ fn find_best_move(root: &Node) -> ChessMove {
     best_child.and_then(|child| child.move_to_reach).unwrap()
 }
 
-const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-const AUTHORS: &'static str = env!("CARGO_PKG_AUTHORS");
-const NAME: &'static str = env!("CARGO_PKG_NAME");
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
+const NAME: &str = env!("CARGO_PKG_NAME");
 
 fn uci_to_move(uci: &str) -> Result<ChessMove, String> {
     let from = Square::from_str(&uci[0..2]).map_err(|_| "Invalid from square")?;
@@ -229,15 +216,15 @@ fn main() {
     let mut current_root: *mut Node = &mut root;
 
     loop {
-        unsafe {
-            dbg!(&*current_root);
-        }
+        // unsafe {
+        //     dbg!(&*current_root);
+        // }
         let mut input = String::new();
         std::io::stdin().read_line(&mut input).unwrap();
         let input = input.trim();
 
         match parse(input) {
-            Ok(("", UCICommand::UCI)) => {
+            Ok(("", UCICommand::Uci)) => {
                 println!("id name {NAME} {VERSION}");
                 println!("id author {AUTHORS}");
                 println!("uciok");

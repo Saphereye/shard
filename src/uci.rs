@@ -11,8 +11,7 @@ use nom::{
 
 #[derive(Debug, PartialEq)]
 pub enum UCICommand {
-    UCI,
-    Debug(bool),
+    Uci,
     IsReady,
     Position {
         fen: Option<String>,
@@ -89,7 +88,7 @@ pub fn parse_quit(input: &str) -> IResult<&str, UCICommand> {
 
 pub fn parse_uci(input: &str) -> IResult<&str, UCICommand> {
     let (input, _) = tag("uci")(input)?;
-    Ok((input, UCICommand::UCI))
+    Ok((input, UCICommand::Uci))
 }
 
 pub fn parse_isready(input: &str) -> IResult<&str, UCICommand> {
@@ -99,7 +98,7 @@ pub fn parse_isready(input: &str) -> IResult<&str, UCICommand> {
 
 fn parse_fen(input: &str) -> IResult<&str, String> {
     let (input, fen) =
-        take_until(" moves")(input).or_else(|_: nom::Err<NomError<&str>>| Ok((input, input)))?;
+        take_until::<&str, &str, NomError<&str>>(" moves")(input).or(Ok((input, input)))?;
     Ok((input, fen.trim().to_string()))
 }
 
@@ -149,7 +148,7 @@ mod tests {
     #[test]
     fn test_parse_uci() {
         let input = "uci";
-        let expected = UCICommand::UCI;
+        let expected = UCICommand::Uci;
         let result = parse(input);
         assert_eq!(result, Ok(("", expected)));
     }
