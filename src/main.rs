@@ -285,7 +285,7 @@ fn main() {
             #[rustfmt::skip]
             Ok((_, UCICommand::Go { wtime, btime, movestogo, movetime, depth, nodes })) => {
                 let start_time = Instant::now();
-                let time_limit = Duration::from_secs(5); // TODO: use adaptive timing
+                let time_limit = Duration::from_secs(1); // TODO: use adaptive timing
 
                 unsafe {
                     while start_time.elapsed() < time_limit {
