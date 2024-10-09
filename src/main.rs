@@ -140,24 +140,7 @@ fn mcts(root: &mut Node) {
 }
 
 fn rollout(current: &Node) -> i64 {
-    let mut board = current.board;
-    let mut rng = rand::thread_rng();
-    let mut depth = 0;
-    let max_depth = 100;
-
-    loop {
-        if depth >= max_depth || board.status() != BoardStatus::Ongoing {
-            return evaluate_board(&board);
-        }
-
-        let moves = MoveGen::new_legal(&board).collect::<Vec<_>>();
-        if moves.is_empty() {
-            unreachable!("No legal moves")
-        }
-        let random_move = moves[rng.gen_range(0..moves.len())];
-        board = board.make_move_new(random_move);
-        depth += 1;
-    }
+    return evaluate_board(&current.board);
 }
 
 fn ucb1(child: &Node, parent: &Node) -> f64 {
@@ -215,10 +198,14 @@ fn main() {
     let mut root = Node::default();
     let mut current_root: *mut Node = &mut root;
 
+    // Precomputing the tree
+    unsafe {
+        for _ in 0..1_00_000 {
+            mcts(&mut *current_root);
+        }
+    }
+
     loop {
-        // unsafe {
-        //     dbg!(&*current_root);
-        // }
         let mut input = String::new();
         std::io::stdin().read_line(&mut input).unwrap();
         let input = input.trim();
@@ -269,20 +256,24 @@ fn main() {
                     }
                 }
             }
-            #[rustfmt::skip]
-            Ok((_, UCICommand::Go { wtime, btime, movestogo, movetime, depth, nodes })) => {
-                let start_time = Instant::now();
-                let time_limit = Duration::from_secs(1); // TODO: use adaptive timing
-
-                unsafe {
-                    while start_time.elapsed() < time_limit {
-                        mcts(&mut *current_root);
-                    }
-
-                    let best_move = find_best_move(&*current_root);
-                    println!("bestmove {}", best_move);
+            Ok((
+                _,
+                UCICommand::Go {
+                    wtime,
+                    btime,
+                    movestogo,
+                    movetime,
+                    depth,
+                    nodes,
+                },
+            )) => unsafe {
+                for _ in 0..50_000 {
+                    mcts(&mut *current_root);
                 }
-            }
+
+                let best_move = find_best_move(&*current_root);
+                println!("bestmove {}", best_move);
+            },
             Ok((_, UCICommand::Quit)) => break,
             _ => {}
         }

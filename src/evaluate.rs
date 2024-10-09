@@ -194,7 +194,7 @@ pub fn evaluate_board(board: &Board) -> i64 {
 
     // Apply a penalty/reward for being in check
     if board.checkers().popcnt() > 0 {
-        score += if is_white_turn { -10000 } else { 10000 }; // Penalty for being in check
+        score += if is_white_turn { -50 } else { 50 }; // Penalty for being in check
     }
 
     // Combine king safety, pawn structure, mobility, and other factors into the final score
@@ -208,8 +208,6 @@ pub fn evaluate_board(board: &Board) -> i64 {
     score.into()
 }
 
-// Corrected king_safety_score, pawn_structure_score, and rook_on_open_file functions
-// Example function for calculating king safety
 fn king_safety_score(king_sq: Square, board: &Board) -> i32 {
     let mut score = 0;
 
@@ -248,7 +246,6 @@ fn king_safety_score(king_sq: Square, board: &Board) -> i32 {
     score
 }
 
-// Example function for calculating pawn structure score
 fn pawn_structure_score(pawn_sq: Square, board: &Board) -> i32 {
     let mut score = 0;
 
@@ -301,7 +298,6 @@ fn pawn_structure_score(pawn_sq: Square, board: &Board) -> i32 {
     score
 }
 
-// Example function for checking if a rook is on an open file
 fn rook_on_open_file(rook_sq: Square, board: &Board) -> bool {
     let rook_file = rook_sq.get_file();
 
