@@ -1,6 +1,4 @@
 use chess::*;
-use rand::Rng;
-use std::time::{Duration, Instant};
 use std::{
     fmt::{self, Debug, Formatter},
     str::FromStr,
@@ -140,7 +138,7 @@ fn mcts(root: &mut Node) {
 }
 
 fn rollout(current: &Node) -> i64 {
-    return evaluate_board(&current.board);
+    evaluate_board(&current.board)
 }
 
 fn ucb1(child: &Node, parent: &Node) -> f64 {
@@ -197,13 +195,7 @@ fn uci_to_move(uci: &str) -> Result<ChessMove, String> {
 fn main() {
     let mut root = Node::default();
     let mut current_root: *mut Node = &mut root;
-
-    // Precomputing the tree
-    unsafe {
-        for _ in 0..1_00_000 {
-            mcts(&mut *current_root);
-        }
-    }
+    let mut is_moving_first_time: bool = true;
 
     loop {
         let mut input = String::new();
@@ -225,6 +217,12 @@ fn main() {
                 }
 
                 current_root = &mut root;
+
+                if moves.len() == 0 {
+                    is_moving_first_time = true;
+                } else {
+                    is_moving_first_time = false;
+                }
 
                 for chess_move in moves {
                     unsafe {
@@ -267,8 +265,14 @@ fn main() {
                     nodes,
                 },
             )) => unsafe {
-                for _ in 0..50_000 {
-                    mcts(&mut *current_root);
+                if is_moving_first_time {
+                    for _ in 0..500_000 {
+                        mcts(&mut *current_root);
+                    }
+                } else {
+                    for _ in 0..50_000 {
+                        mcts(&mut *current_root);
+                    }
                 }
 
                 let best_move = find_best_move(&*current_root);

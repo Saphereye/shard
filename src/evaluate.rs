@@ -8,74 +8,86 @@ const QUEEN_VALUE: i32 = 900;
 
 #[rustfmt::skip]
 const PAWN_TABLE: [i32; 64] = [
-    0,  0,  0,  0,  0,  0,  0,  0,
-    5, 10, 10, -20, -20, 10, 10,  5,
-    5, -5, -10,  0,  0, -10, -5,  5,
-    0,  0,  0, 20, 20,  0,  0,  0,
-    5,  5, 10, 25, 25, 10,  5,  5,
-    10, 10, 20, 30, 30, 20, 10, 10,
-    50, 50, 50, 50, 50, 50, 50, 50,
-    0, 0, 0, 0, 0, 0, 0, 0
+    0,   0,   0,   0,   0,   0,  0,  0,
+    5,  10,  10, -20, -20,  10, 10,  5,
+    5,  -5, -10,   0,   0, -10, -5,  5,
+    0,   0,   0,  20,  20,   0,  0,  0,
+    5,   5,  10,  25,  25,  10,  5,  5,
+    10, 10,  20,  30,  30,  20, 10, 10,
+    50, 50,  50,  50,  50,  50, 50, 50,
+    0,   0,   0,   0,   0,   0,  0,  0
 ];
 
 #[rustfmt::skip]
 const KNIGHT_TABLE: [i32; 64] = [
     -50, -40, -30, -30, -30, -30, -40, -50,
-    -40, -20, 0, 0, 0, 0, -20, -40,
-    -30, 0, 10, 15, 15, 10, 0, -30,
-    -30, 5, 15, 20, 20, 15, 5, -30,
-    -30, 0, 15, 20, 20, 15, 0, -30,
-    -30, 5, 10, 15, 15, 10, 5, -30,
-    -40, -20, 0, 5, 5, 0, -20, -40,
+    -40, -20,   0,   0,   0,   0, -20, -40,
+    -30,   0,  10,  15,  15,  10,   0, -30,
+    -30,   5,  15,  20,  20,  15,   5, -30,
+    -30,   0,  15,  20,  20,  15,   0, -30,
+    -30,   5,  10,  15,  15,  10,   5, -30,
+    -40, -20,   0,   5,   5,   0, -20, -40,
     -50, -40, -30, -30, -30, -30, -40, -50
 ];
 
 #[rustfmt::skip]
 const BISHOP_TABLE: [i32; 64] = [
     -20, -10, -10, -10, -10, -10, -10, -20,
-    -10, 5, 0, 0, 0, 0, 5, -10,
-    -10, 10, 10, 10, 10, 10, 10, -10,
-    -10, 0, 10, 10, 10, 10, 0, -10,
-    -10, 5, 5, 10, 10, 5, 5, -10,
-    -10, 0, 5, 10, 10, 5, 0, -10,
-    -10, 0, 0, 0, 0, 0, 0, -10,
+    -10,   5,   0,   0,   0,   0,   5, -10,
+    -10,  10,  10,  10,  10,  10,  10, -10,
+    -10,   0,  10,  10,  10,  10,   0, -10,
+    -10,   5,   5,  10,  10,   5,   5, -10,
+    -10,   0,   5,  10,  10,   5,   0, -10,
+    -10,   0,   0,   0,   0,   0,   0, -10,
     -20, -10, -10, -10, -10, -10, -10, -20
 ];
 
 #[rustfmt::skip]
 const ROOK_TABLE: [i32; 64] = [
-    0, 0, 0, 5, 5, 0, 0, 0,
-    -5, 0, 0, 0, 0, 0, 0, -5,
-    -5, 0, 0, 0, 0, 0, 0, -5,
-    -5, 0, 0, 0, 0, 0, 0, -5,
-    -5, 0, 0, 0, 0, 0, 0, -5,
-    -5, 0, 0, 0, 0, 0, 0, -5,
-    5, 10, 10, 10, 10, 10, 10, 5,
-    0, 0, 0, 0, 0, 0, 0, 0
+     0,  0,  0,  5,  5,  0,  0,  0,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+     5, 10, 10, 10, 10, 10, 10,  5,
+     0,  0,  0,  0,  0,  0,  0,  0
 ];
 
 #[rustfmt::skip]
 const QUEEN_TABLE: [i32; 64] = [
     -20, -10, -10, -5, -5, -10, -10, -20,
-    -10, 0, 0, 0, 0, 0, 0, -10,
-    -10, 0, 5, 5, 5, 5, 0, -10,
-    -5, 0, 5, 5, 5, 5, 0, -5,
-    0, 0, 5, 5, 5, 5, 0, -5,
-    -10, 5, 5, 5, 5, 5, 0, -10,
-    -10, 0, 5, 0, 0, 0, 0, -10,
+    -10,   0,   0,  0,  0,   0,   0, -10,
+    -10,   0,   5,  5,  5,   5,   0, -10,
+     -5,   0,   5,  5,  5,   5,   0, -5,
+      0,   0,   5,  5,  5,   5,   0, -5,
+    -10,   5,   5,  5,  5,   5,   0, -10,
+    -10,   0,   5,  0,  0,   0,   0, -10,
     -20, -10, -10, -5, -5, -10, -10, -20
 ];
 
 #[rustfmt::skip]
 const KING_TABLE: [i32; 64] = [
-    20, 30, 10, 0, 0, 10, 30, 20,
-    20, 20, 0, 0, 0, 0, 20, 20,
+     20,  30,  10,   0,   0,  10,  30,  20,
+     20,  20, -10, -10, -10, -10,  20,  20,
     -10, -20, -20, -20, -20, -20, -20, -10,
-    20, -30, -30, -40, -40, -30, -30, -20,
+     20, -30, -30, -40, -40, -30, -30, -20,
     -30, -40, -40, -50, -50, -40, -40, -30,
     -30, -40, -40, -50, -50, -40, -40, -30,
     -30, -40, -40, -50, -50, -40, -40, -30,
     -30, -40, -40, -50, -50, -40, -40, -30
+];
+
+#[rustfmt::skip]
+const KING_ENDGAME_TABLE: [i32; 64] = [
+    -50, -30, -30, -30, -30, -30, -30, -50,
+    -30, -30,   0,   0,   0,   0, -30, -30,
+    -30, -10,  20,  30,  30,  20, -10, -30,
+    -30, -10,  30,  40,  40,  30, -10, -30,
+    -30, -10,  30,  40,  40,  30, -10, -30,
+    -30, -10,  20,  30,  30,  20, -10, -30,
+    -30, -20, -10,   0,   0, -10, -20, -30,
+    -50, -40, -30, -20, -20, -30, -40, -50,
 ];
 
 pub fn evaluate_board(board: &Board) -> i64 {
@@ -130,9 +142,9 @@ pub fn evaluate_board(board: &Board) -> i64 {
 
             // Positional value based on the side (flip for Black)
             let positional_score = if board.color_on(sq) == Some(Color::White) {
-                positional_value(piece, sq)
+                positional_value(piece, sq, board.combined().popcnt() < 16, Color::White)
             } else {
-                -positional_value(piece, sq)
+                -positional_value(piece, sq, board.combined().popcnt() < 16, Color::Black)
             };
 
             let total_value = if board.color_on(sq) == Some(Color::White) {
@@ -216,15 +228,15 @@ fn king_safety_score(king_sq: Square, board: &Board) -> i32 {
     let king_file = king_sq.get_file();
 
     // Simple heuristic: kings are safer near the center and with pawns in front of them
-    let king_center_distance =
-        (king_rank.to_index() as i32 - 3).abs() + (king_file.to_index() as i32 - 3).abs();
-    score -= king_center_distance * 10; // Penalize distance from the center
+    // let king_center_distance =
+    //     (king_rank.to_index() as i32 - 3).abs() + (king_file.to_index() as i32 - 3).abs();
+    // score -= king_center_distance * 10; // Penalize distance from the center
 
     // Check if the king has a pawn shield (pawns in front of the king)
     for file_offset in -1..=1 {
         let new_file = (king_file.to_index() as i32 + file_offset).clamp(0, 7) as u8;
         let shield_sq = Square::make_square(
-            Rank::from_index(king_rank.to_index()),
+            Rank::from_index(king_rank.to_index() + 1),
             File::from_index(new_file as usize),
         );
         if let Some(piece) = board.piece_on(shield_sq) {
@@ -312,8 +324,12 @@ fn rook_on_open_file(rook_sq: Square, board: &Board) -> bool {
     true // Open file if no pawns found
 }
 
-fn positional_value(piece: Piece, square: Square) -> i32 {
-    let index = square.to_index();
+fn positional_value(piece: Piece, square: Square, is_endgame: bool, side_to_move: Color) -> i32 {
+    let mut index = square.to_index();
+
+    if side_to_move == Color::Black {
+        index = 63 - index;
+    }
 
     match piece {
         Piece::Pawn => PAWN_TABLE[index],
@@ -321,6 +337,12 @@ fn positional_value(piece: Piece, square: Square) -> i32 {
         Piece::Bishop => BISHOP_TABLE[index],
         Piece::Rook => ROOK_TABLE[index],
         Piece::Queen => QUEEN_TABLE[index],
-        Piece::King => KING_TABLE[index],
+        Piece::King => {
+            if is_endgame {
+                KING_ENDGAME_TABLE[index]
+            } else {
+                KING_TABLE[index]
+            }
+        }
     }
 }
