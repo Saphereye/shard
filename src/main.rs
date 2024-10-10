@@ -1,4 +1,5 @@
 use chess::*;
+use rand::{thread_rng, Rng};
 use std::{
     fmt::{self, Debug, Formatter},
     str::FromStr,
@@ -154,19 +155,41 @@ fn ucb1(child: &Node, parent: &Node) -> f64 {
 }
 
 fn find_best_move(root: &Node) -> ChessMove {
-    let mut best_child: Option<&Node> = None;
-    let mut max_visits = 0;
-
+    let mut children = Vec::new();
     let mut current_child = root.first_child.as_deref();
     while let Some(child) = current_child {
-        if child.number_of_visits > max_visits {
-            max_visits = child.number_of_visits;
-            best_child = Some(child);
-        }
+        children.push(child);
         current_child = child.next_sibling.as_deref();
     }
 
-    best_child.and_then(|child| child.move_to_reach).unwrap()
+    let probabilities = softmax(&children);
+    let mut rng = thread_rng();
+    let selected_index = probabilities
+        .iter()
+        .enumerate()
+        .map(|(i, &p)| (i, rng.gen::<f64>() * p))
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        .map(|(i, _)| i)
+        .unwrap();
+
+    children[selected_index].move_to_reach.unwrap()
+}
+
+fn softmax(children: &[&Node]) -> Vec<f64> {
+    let max_visits = children
+        .iter()
+        .map(|child| child.number_of_visits)
+        .max()
+        .unwrap_or(1);
+    let exp_scores: Vec<f64> = children
+        .iter()
+        .map(|child| (child.number_of_visits as f64 / max_visits as f64).exp())
+        .collect();
+    let sum_exp_scores: f64 = exp_scores.iter().sum();
+    exp_scores
+        .iter()
+        .map(|&score| score / sum_exp_scores)
+        .collect()
 }
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -270,7 +293,7 @@ fn main() {
                         mcts(&mut *current_root);
                     }
                 } else {
-                    for _ in 0..50_000 {
+                    for _ in 0..100_000 {
                         mcts(&mut *current_root);
                     }
                 }

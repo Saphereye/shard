@@ -127,6 +127,9 @@ pub fn evaluate_board(board: &Board) -> i64 {
         black_bishop_pair_bonus = 50; // Reward for bishop pair
     }
 
+    let mut white_hanging_penalty = 0;
+    let mut black_hanging_penalty = 0;
+
     // Iterate over all squares to calculate piece value and positional score
     for sq in 0..64 {
         let sq: Square = unsafe { Square::new(sq) };
@@ -201,6 +204,16 @@ pub fn evaluate_board(board: &Board) -> i64 {
                     black_rook_bonus += 50;
                 }
             }
+
+            // Hanging piece detection: if a piece is attacked and not defended
+            if is_hanging_piece(sq, board.side_to_move(), board) {
+                let hanging_penalty = base_value; // Penalty based on piece value
+                if board.side_to_move() == Color::White {
+                    white_hanging_penalty += hanging_penalty;
+                } else {
+                    black_hanging_penalty += hanging_penalty;
+                }
+            }
         }
     }
 
@@ -216,8 +229,37 @@ pub fn evaluate_board(board: &Board) -> i64 {
     score += white_center_control - black_center_control;
     score += white_rook_bonus - black_rook_bonus;
     score += white_bishop_pair_bonus - black_bishop_pair_bonus;
+    score += black_hanging_penalty - white_hanging_penalty;
 
     score.into()
+}
+
+fn is_hanging_piece(sq: Square, color: Color, board: &Board) -> bool {
+    if board.checkers().popcnt() > 0 {
+        return false;
+    }
+
+    // Generate all possible moves for the opponent
+    let opponent_moves = MoveGen::new_legal(
+        &board
+            .null_move()
+            .expect("Expected to be not a check position"),
+    );
+
+    // Count the number of opponent moves that attack the given square
+    let attackers = opponent_moves.filter(|m| m.get_dest() == sq).count();
+
+    // Generate all possible moves for the current player
+    let player_moves = MoveGen::new_legal(board);
+
+    // Count the number of player moves that defend the given square
+    let defenders = player_moves
+        .filter(|m| m.get_dest() == sq)
+        .filter(|m| board.color_on(m.get_source()) == Some(color))
+        .count();
+
+    // If attacked but not defended, it's a hanging piece
+    attackers > 0 && defenders == 0
 }
 
 fn king_safety_score(king_sq: Square, board: &Board) -> i32 {
