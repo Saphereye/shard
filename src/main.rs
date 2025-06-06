@@ -1,4 +1,5 @@
 use chess::*;
+use evaluate::Evaluator;
 use rayon::prelude::*;
 use std::{
     fmt::Debug,
@@ -8,9 +9,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod nnue;
 mod evaluate;
-use evaluate::evaluate_board;
-
 mod uci;
 use uci::*;
 
@@ -143,16 +143,11 @@ pub struct ChessEngine {
     history_table: HistoryTable,
     stop_search: Arc<AtomicBool>,
     contempt: i32, // To avoid draws when winning
+    evaluator: Evaluator,
 }
 
 impl Default for ChessEngine {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ChessEngine {
-    pub fn new() -> Self {
         let tt_size = 1 << 22; // 4M entries for deeper search
         Self {
             transposition_table: Arc::new(Mutex::new(vec![None; tt_size])),
@@ -165,9 +160,12 @@ impl ChessEngine {
             history_table: HistoryTable::default(),
             stop_search: Arc::new(AtomicBool::new(false)),
             contempt: 20, // Small contempt factor to avoid draws
+            evaluator: Evaluator::new(), // Initialize evaluator
         }
     }
+}
 
+impl ChessEngine {
     pub fn search(&mut self, board: &Board, depth: u8, time_limit: Option<Duration>) -> (ChessMove, i32) {
         self.stats = SearchStats::default();
         self.start_time = Some(Instant::now());
@@ -313,6 +311,7 @@ impl ChessEngine {
             history_table: HistoryTable::default(), // Each thread gets its own history
             stop_search: self.stop_search.clone(),
             contempt: self.contempt,
+            evaluator: self.evaluator.clone(), // Clone evaluator for parallel use
         }
     }
 
@@ -709,7 +708,7 @@ impl ChessEngine {
     }
 
     fn evaluate_position(&self, board: &Board) -> i32 {
-        let mut score = evaluate_board(board) as i32;
+        let mut score = self.evaluator.evaluate(board) as i32;
         
         // Flip score for black to move
         if board.side_to_move() == Color::Black {
@@ -841,7 +840,7 @@ fn calculate_time_limit(
 }
 
 fn main() {
-    let mut engine = ChessEngine::new();
+    let mut engine = ChessEngine::default();
     let mut current_board = Board::default();
 
     loop {
