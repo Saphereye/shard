@@ -4,7 +4,7 @@
 
 <h1 align="center">Shard</h1>
 
-**Shard** is a fast, UCI-compliant chess engine written in Rust. It currently supports most Universal Chess Interface commands and plays at an estimated strength of **2000+ Elo**.
+**Shard** is a blazingly bad, UCI-compliant chess engine written in Rust :P.
 
 # Gameplay
 <p align="center">
