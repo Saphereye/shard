@@ -1,390 +1,211 @@
 use chess::*;
 
-const PAWN_VALUE: i32 = 100;
-const KNIGHT_VALUE: i32 = 320;
-const BISHOP_VALUE: i32 = 330;
-const ROOK_VALUE: i32 = 500;
-const QUEEN_VALUE: i32 = 900;
-
 #[rustfmt::skip]
-const PAWN_TABLE: [i32; 64] = [
-    0,   0,   0,   0,   0,   0,  0,  0,
-    5,  10,  10, -20, -20,  10, 10,  5,
-    5,  -5, -10,   0,   0, -10, -5,  5,
-    0,   0,   0,  20,  20,   0,  0,  0,
-    5,   5,  10,  25,  25,  10,  5,  5,
-    10, 10,  20,  30,  30,  20, 10, 10,
-    50, 50,  50,  50,  50,  50, 50, 50,
-    0,   0,   0,   0,   0,   0,  0,  0
+const MG_PIECE_BONUS: [[[i16; 4]; 8]; 5] = [
+    // Knight
+    [[-175,-92,-74,-73],[-77,-41,-27,-15],[-61,-17,6,12],[-35,8,40,49],[-34,13,44,51],[-9,22,58,53],[-67,-27,4,37],[-201,-83,-56,-26]],
+    // Bishop
+    [[-53,-5,-8,-23],[-15,8,19,4],[-7,21,-5,17],[-5,11,25,39],[-12,29,22,31],[-16,6,1,11],[-17,-14,5,0],[-48,1,-14,-23]],
+    // Rook
+    [[-31,-20,-14,-5],[-21,-13,-8,6],[-25,-11,-1,3],[-13,-5,-4,-6],[-27,-15,-4,3],[-22,-2,6,12],[-2,12,16,18],[-17,-19,-1,9]],
+    // Queen
+    [[3,-5,-5,4],[-3,5,8,12],[-3,6,13,7],[4,5,9,8],[0,14,12,5],[-4,10,6,8],[-5,6,10,8],[-2,-2,1,-2]],
+    // King
+    [[271,327,271,198],[278,303,234,179],[195,258,169,120],[164,190,138,98],[154,179,105,70],[123,145,81,31],[88,120,65,33],[59,89,45,-1]],
 ];
 
 #[rustfmt::skip]
-const KNIGHT_TABLE: [i32; 64] = [
-    -50, -40, -30, -30, -30, -30, -40, -50,
-    -40, -20,   0,   0,   0,   0, -20, -40,
-    -30,   0,  10,  15,  15,  10,   0, -30,
-    -30,   5,  15,  20,  20,  15,   5, -30,
-    -30,   0,  15,  20,  20,  15,   0, -30,
-    -30,   5,  10,  15,  15,  10,   5, -30,
-    -40, -20,   0,   5,   5,   0, -20, -40,
-    -50, -40, -30, -30, -30, -30, -40, -50
+const EG_PIECE_BONUS: [[[i16; 4]; 8]; 5] = [
+    // Knight
+    [[-96,-65,-49,-21],[-67,-54,-18,8],[-40,-27,-8,29],[-35,-2,13,28],[-45,-16,9,39],[-51,-44,-16,17],[-69,-50,-51,12],[-100,-88,-56,-17]],
+    // Bishop
+    [[-57,-30,-37,-12],[-37,-13,-17,1],[-16,-1,-2,10],[-20,-6,0,17],[-17,-1,-14,15],[-30,6,4,6],[-31,-20,-1,1],[-46,-42,-37,-24]],
+    // Rook
+    [[-9,-13,-10,-9],[-12,-9,-1,-2],[6,-8,-2,-6],[-6,1,-9,7],[-5,8,7,-6],[6,1,-7,10],[4,5,20,-5],[18,0,19,13]],
+    // Queen
+    [[-69,-57,-47,-26],[-55,-31,-22,-4],[-39,-18,-9,3],[-23,-3,13,24],[-29,-6,9,21],[-38,-18,-12,1],[-50,-27,-24,-8],[-75,-52,-43,-36]],
+    // King
+    [[1,45,85,76],[53,100,133,135],[88,130,169,175],[103,156,172,172],[96,166,199,199],[92,172,184,191],[47,121,116,131],[11,59,73,78]],
 ];
 
 #[rustfmt::skip]
-const BISHOP_TABLE: [i32; 64] = [
-    -20, -10, -10, -10, -10, -10, -10, -20,
-    -10,   5,   0,   0,   0,   0,   5, -10,
-    -10,  10,  10,  10,  10,  10,  10, -10,
-    -10,   0,  10,  10,  10,  10,   0, -10,
-    -10,   5,   5,  10,  10,   5,   5, -10,
-    -10,   0,   5,  10,  10,   5,   0, -10,
-    -10,   0,   0,   0,   0,   0,   0, -10,
-    -20, -10, -10, -10, -10, -10, -10, -20
+const MG_PAWN_BONUS: [[i16; 8]; 8] = [
+    [0,0,0,0,0,0,0,0],[3,3,10,19,16,19,7,-5],[-9,-15,11,15,32,22,5,-22],[-4,-23,6,20,40,17,4,-8],
+    [13,0,-13,1,11,-2,-13,5],[5,-12,-7,22,-8,-5,-15,-8],[-7,7,-3,-13,5,-16,10,-8],[0,0,0,0,0,0,0,0],
 ];
 
 #[rustfmt::skip]
-const ROOK_TABLE: [i32; 64] = [
-     0,  0,  0,  5,  5,  0,  0,  0,
-    -5,  0,  0,  0,  0,  0,  0, -5,
-    -5,  0,  0,  0,  0,  0,  0, -5,
-    -5,  0,  0,  0,  0,  0,  0, -5,
-    -5,  0,  0,  0,  0,  0,  0, -5,
-    -5,  0,  0,  0,  0,  0,  0, -5,
-     5, 10, 10, 10, 10, 10, 10,  5,
-     0,  0,  0,  0,  0,  0,  0,  0
+const EG_PAWN_BONUS: [[i16; 8]; 8] = [
+    [0,0,0,0,0,0,0,0],[-10,-6,10,0,14,7,-5,-19],[-10,-10,-10,4,4,3,-6,-4],[6,-2,-8,-4,-13,-12,-10,-9],
+    [10,5,4,-5,-5,-5,14,9],[28,20,21,28,30,7,6,13],[0,-11,12,21,25,19,4,7],[0,0,0,0,0,0,0,0],
 ];
 
 #[rustfmt::skip]
-const QUEEN_TABLE: [i32; 64] = [
-    -20, -10, -10, -5, -5, -10, -10, -20,
-    -10,   0,   0,  0,  0,   0,   0, -10,
-    -10,   0,   5,  5,  5,   5,   0, -10,
-     -5,   0,   5,  5,  5,   5,   0, -5,
-      0,   0,   5,  5,  5,   5,   0, -5,
-    -10,   5,   5,  5,  5,   5,   0, -10,
-    -10,   0,   5,  0,  0,   0,   0, -10,
-    -20, -10, -10, -5, -5, -10, -10, -20
+pub const IMBALANCE_TABLE_WHITE: [&[i32]; 6] = [
+    &[0],
+    &[40, 38],
+    &[32, 255, -62],
+    &[0, 104, 4, 0],
+    &[-26, -2, 47, 105, -208],
+    &[-189, 24, 117, 133, -134, -6],
 ];
 
 #[rustfmt::skip]
-const KING_TABLE: [i32; 64] = [
-     20,  30,  10,   0,   0,  10,  30,  20,
-     20,  20, -10, -10, -10, -10,  20,  20,
-    -10, -20, -20, -20, -20, -20, -20, -10,
-     20, -30, -30, -40, -40, -30, -30, -20,
-    -30, -40, -40, -50, -50, -40, -40, -30,
-    -30, -40, -40, -50, -50, -40, -40, -30,
-    -30, -40, -40, -50, -50, -40, -40, -30,
-    -30, -40, -40, -50, -50, -40, -40, -30
+pub const IMBALANCE_TABLE_BLACK: [&[i32]; 6] = [
+    &[0],
+    &[36, 0],
+    &[9, 63, 0],
+    &[59, 65, 42, 0],
+    &[46, 39, 24, -24, 0],
+    &[97, 100, -42, 137, 268, 0],
 ];
 
-#[rustfmt::skip]
-const KING_ENDGAME_TABLE: [i32; 64] = [
-    -50, -30, -30, -30, -30, -30, -30, -50,
-    -30, -30,   0,   0,   0,   0, -30, -30,
-    -30, -10,  20,  30,  30,  20, -10, -30,
-    -30, -10,  30,  40,  40,  30, -10, -30,
-    -30, -10,  30,  40,  40,  30, -10, -30,
-    -30, -10,  20,  30,  30,  20, -10, -30,
-    -30, -20, -10,   0,   0, -10, -20, -30,
-    -50, -40, -30, -20, -20, -30, -40, -50,
-];
+const MG_PIECE_VALUES: [i16; 6] = [124, 781, 825, 1276, 2538, 0]; // P,N,B,R,Q,K
+const EG_PIECE_VALUES: [i16; 6] = [206, 854, 915, 1380, 2682, 0];
 
-pub fn evaluate_board(board: &Board) -> i64 {
-    let is_white_turn = board.side_to_move() == Color::White;
-    // Checkmate condition
-    if board.status() == BoardStatus::Checkmate {
-        return if is_white_turn { -20000 } else { 20000 };
-    } else if board.status() == BoardStatus::Stalemate {
-        return 0;
-    }
+pub fn evaluate_board(board: &Board) -> i32 {
+    let mut mg_total = 0i32;
+    let mut eg_total = 0i32;
+    let mut non_pawn_material = 0i32;
+    let mut bishop_count = [0, 0]; // W,B
 
-    let mut score = 0;
-    let mut white_king_safety = 0;
-    let mut black_king_safety = 0;
-    let mut white_pawn_structure = 0;
-    let mut black_pawn_structure = 0;
-    let mut white_mobility = 0;
-    let mut black_mobility = 0;
-    let mut white_center_control = 0;
-    let mut black_center_control = 0;
-    let mut white_rook_bonus = 0;
-    let mut black_rook_bonus = 0;
-    let mut white_bishop_pair_bonus = 0;
-    let mut black_bishop_pair_bonus = 0;
+    // SINGLE PASS through all pieces - calculate everything at once
+    for square in *board.combined() {
+        if let Some(piece) = board.piece_on(square) {
+            let color = board.color_on(square).unwrap();
+            let sign = if color == Color::White { 1 } else { -1 };
+            let rank = square.get_rank().to_index();
+            let file = square.get_file().to_index();
+            let piece_idx = get_piece_index(&piece);
+            // Material values
+            let mg_value = MG_PIECE_VALUES[piece_idx] as i32;
+            let eg_value = EG_PIECE_VALUES[piece_idx] as i32;
+            mg_total += sign * mg_value;
+            eg_total += sign * eg_value;
 
-    // Squares representing the center
-    let center_squares = [Square::E4, Square::D4, Square::E5, Square::D5];
-
-    let black_bishops = (board.pieces(Piece::Bishop) & board.color_combined(Color::Black)).popcnt();
-    let white_bishops = (board.pieces(Piece::Bishop) & board.color_combined(Color::White)).popcnt();
-
-    if white_bishops >= 2 {
-        white_bishop_pair_bonus = 50; // Reward for bishop pair
-    }
-
-    if black_bishops >= 2 {
-        black_bishop_pair_bonus = 50; // Reward for bishop pair
-    }
-
-    let mut white_hanging_penalty = 0;
-    let mut black_hanging_penalty = 0;
-
-    // Iterate over all squares to calculate piece value and positional score
-    for sq in 0..64 {
-        let sq: Square = unsafe { Square::new(sq) };
-        if let Some(piece) = board.piece_on(sq) {
-            let base_value = match piece {
-                Piece::Pawn => PAWN_VALUE,
-                Piece::Knight => KNIGHT_VALUE,
-                Piece::Bishop => BISHOP_VALUE,
-                Piece::Rook => ROOK_VALUE,
-                Piece::Queen => QUEEN_VALUE,
-                Piece::King => 0, // King has no base value, but we'll consider king safety separately
+            // PSQ values
+            let (mg_psqt, eg_psqt) = match piece {
+                Piece::Pawn => {
+                    let mg = MG_PAWN_BONUS[7 - rank][file] as i32;
+                    let eg = EG_PAWN_BONUS[7 - rank][file] as i32;
+                    (mg, eg)
+                }
+                _ => {
+                    let bonus_idx = piece_idx - 1; // Knight=0, Bishop=1, etc.
+                    let file_mirrored = file.min(7 - file);
+                    let mg = MG_PIECE_BONUS[bonus_idx][7 - rank][file_mirrored] as i32;
+                    let eg = EG_PIECE_BONUS[bonus_idx][7 - rank][file_mirrored] as i32;
+                    (mg, eg)
+                }
             };
+            mg_total += sign * mg_psqt;
+            eg_total += sign * eg_psqt;
 
-            // Positional value based on the side (flip for Black)
-            let positional_score = if board.color_on(sq) == Some(Color::White) {
-                positional_value(piece, sq, board.combined().popcnt() < 16, Color::White)
-            } else {
-                -positional_value(piece, sq, board.combined().popcnt() < 16, Color::Black)
-            };
+            // Non-pawn material for phase (always positive)
+            if piece != Piece::Pawn && piece != Piece::King {
+                non_pawn_material += mg_value;
+            }
 
-            let total_value = if board.color_on(sq) == Some(Color::White) {
-                base_value + positional_score
-            } else {
-                -(base_value + positional_score)
-            };
-
-            // Accumulate score, positive for white, negative for black
-            score += total_value;
-
-            // King safety
-            if piece == Piece::King {
-                if board.color_on(sq) == Some(Color::White) {
-                    white_king_safety += king_safety_score(sq, board);
-                } else {
-                    black_king_safety += king_safety_score(sq, board);
+            // Piece Imbalance
+            let mut imbalance_total = 0;
+            if piece == Piece::Bishop {
+                match color {
+                    Color::White => bishop_count[0] += 1,
+                    Color::Black => bishop_count[1] += 1,
                 }
             }
 
-            // Pawn structure (isolated, doubled, passed)
-            if piece == Piece::Pawn {
-                if board.color_on(sq) == Some(Color::White) {
-                    white_pawn_structure += pawn_structure_score(sq, board);
-                } else {
-                    black_pawn_structure += pawn_structure_score(sq, board);
+            if piece != Piece::King {
+                for inner_square in *board.combined() {
+                    if let Some(inner_piece) = board.piece_on(inner_square) {
+                        let inner_piece_idx = get_piece_index(&inner_piece);
+                        if inner_piece == Piece::King || inner_piece_idx > piece_idx {
+                            continue;
+                        }
+
+                        let inner_color = board.color_on(inner_square).unwrap();
+
+                        match inner_color {
+                            Color::White => {
+                                imbalance_total += sign
+                                    * IMBALANCE_TABLE_WHITE[piece_idx + 1][inner_piece_idx + 1];
+                            }
+                            Color::Black => {
+                                imbalance_total += sign
+                                    * IMBALANCE_TABLE_BLACK[piece_idx + 1][inner_piece_idx + 1];
+                            }
+                        }
+                    }
                 }
+
+            if bishop_count[0] > 1 {
+                imbalance_total += sign * IMBALANCE_TABLE_WHITE[piece_idx + 1][0]
             }
 
-            // Piece mobility (count legal moves)
-            let mobility = MoveGen::new_legal(board)
-                .filter(|m| m.get_source() == sq)
-                .count() as i32;
-            if board.color_on(sq) == Some(Color::White) {
-                white_mobility += mobility;
-            } else {
-                black_mobility += mobility;
+            if bishop_count[1] > 1 {
+                imbalance_total += sign * IMBALANCE_TABLE_BLACK[piece_idx + 1][0]
             }
 
-            // Control of key squares (center control)
-            if center_squares.contains(&sq) {
-                if board.color_on(sq) == Some(Color::White) {
-                    white_center_control += 25;
-                } else {
-                    black_center_control += 25;
-                }
             }
 
-            // Rook on open files
-            if piece == Piece::Rook && rook_on_open_file(sq, board) {
-                if board.color_on(sq) == Some(Color::White) {
-                    white_rook_bonus += 50;
-                } else {
-                    black_rook_bonus += 50;
-                }
-            }
+            imbalance_total += if bishop_count[0] == 2 { 1438 } else { 0 }
+                - if bishop_count[1] == 2 { 1438 } else { 0 };
+            mg_total += (imbalance_total / 16) << 0;
+            eg_total += (imbalance_total / 16) << 0;
 
-            // Hanging piece detection: if a piece is attacked and not defended
-            if is_hanging_piece(sq, board.side_to_move(), board) {
-                let hanging_penalty = base_value; // Penalty based on piece value
-                if board.side_to_move() == Color::White {
-                    white_hanging_penalty += hanging_penalty;
-                } else {
-                    black_hanging_penalty += hanging_penalty;
-                }
-            }
+            // Pawns
         }
     }
 
-    // Apply a penalty/reward for being in check
-    if board.checkers().popcnt() > 0 {
-        score += if is_white_turn { -50 } else { 50 }; // Penalty for being in check
-    }
+    // Apply scale factor to endgame
+    eg_total = eg_total * scale_factor(board, eg_total) / 64;
 
-    // Combine king safety, pawn structure, mobility, and other factors into the final score
-    score += white_king_safety - black_king_safety;
-    score += white_pawn_structure - black_pawn_structure;
-    score += white_mobility - black_mobility;
-    score += white_center_control - black_center_control;
-    score += white_rook_bonus - black_rook_bonus;
-    score += white_bishop_pair_bonus - black_bishop_pair_bonus;
-    score += black_hanging_penalty - white_hanging_penalty;
-
-    score.into()
-}
-
-fn is_hanging_piece(sq: Square, color: Color, board: &Board) -> bool {
-    if board.checkers().popcnt() > 0 {
-        return false;
-    }
-
-    // Generate all possible moves for the opponent
-    let opponent_moves = MoveGen::new_legal(
-        &board
-            .null_move()
-            .expect("Expected to be not a check position"),
-    );
-
-    // Count the number of opponent moves that attack the given square
-    let attackers = opponent_moves.filter(|m| m.get_dest() == sq).count();
-
-    // Generate all possible moves for the current player
-    let player_moves = MoveGen::new_legal(board);
-
-    // Count the number of player moves that defend the given square
-    let defenders = player_moves
-        .filter(|m| m.get_dest() == sq)
-        .filter(|m| board.color_on(m.get_source()) == Some(color))
-        .count();
-
-    // If attacked but not defended, it's a hanging piece
-    attackers > 0 && defenders == 0
-}
-
-fn king_safety_score(king_sq: Square, board: &Board) -> i32 {
-    let mut score = 0;
-
-    // Penalize the king for being too exposed (based on rank/file)
-    let king_rank = king_sq.get_rank();
-    let king_file = king_sq.get_file();
-
-    // Simple heuristic: kings are safer near the center and with pawns in front of them
-    // let king_center_distance =
-    //     (king_rank.to_index() as i32 - 3).abs() + (king_file.to_index() as i32 - 3).abs();
-    // score -= king_center_distance * 10; // Penalize distance from the center
-
-    // Check if the king has a pawn shield (pawns in front of the king)
-    for file_offset in -1..=1 {
-        let new_file = (king_file.to_index() as i32 + file_offset).clamp(0, 7) as u8;
-        let shield_sq = Square::make_square(
-            Rank::from_index(king_rank.to_index() + 1),
-            File::from_index(new_file as usize),
-        );
-        if let Some(piece) = board.piece_on(shield_sq) {
-            if piece == Piece::Pawn {
-                score += 50; // Reward for having pawn shield
-            }
-        }
-    }
-
-    // Penalize if king is on an open file or near an enemy rook
-    let rook_check = MoveGen::new_legal(board)
-        .filter(|&mv| {
-            board.piece_on(mv.get_dest()) == Some(Piece::Rook)
-                && board.color_on(mv.get_dest()) != board.color_on(king_sq)
-        })
-        .count();
-    score -= rook_check as i32 * 100; // Penalize if threatened by rooks
-
-    score
-}
-
-fn pawn_structure_score(pawn_sq: Square, board: &Board) -> i32 {
-    let mut score = 0;
-
-    let pawn_rank = pawn_sq.get_rank();
-    let pawn_file = pawn_sq.get_file();
-
-    // Penalize isolated pawns (no pawns on adjacent files)
-    let is_isolated = |file: File| -> bool {
-        for rank_index in 0..8 {
-            let sq = Square::make_square(Rank::from_index(rank_index), file);
-            if board.piece_on(sq) == Some(Piece::Pawn) {
-                return false;
-            }
-        }
-        true
+    // Calculate phase
+    const MIDGAME_LIMIT: i32 = 15258;
+    const ENDGAME_LIMIT: i32 = 3915;
+    let phase = {
+        let clamped = non_pawn_material.clamp(ENDGAME_LIMIT, MIDGAME_LIMIT);
+        ((clamped - ENDGAME_LIMIT) * 128) / (MIDGAME_LIMIT - ENDGAME_LIMIT)
     };
 
-    if (pawn_file == File::A || is_isolated(File::from_index(pawn_file.to_index() - 1)))
-        && (pawn_file == File::H || is_isolated(File::from_index(pawn_file.to_index() + 1)))
-    {
-        score -= 50; // Isolated pawn penalty
-    }
+    // Interpolate between middle game and endgame
+    let mut value = (mg_total * phase + eg_total * (128 - phase)) / 128;
 
-    // Penalize doubled pawns (more than one pawn on the same file)
-    let pawn_on_same_file = MoveGen::new_legal(board)
-        .filter(|&mv| {
-            mv.get_dest().get_file() == pawn_file
-                && board.piece_on(mv.get_dest()) == Some(Piece::Pawn)
-        })
-        .count();
-    if pawn_on_same_file > 1 {
-        score -= 30; // Doubled pawn penalty
-    }
+    // Apply rounding
+    // if apply_rounding {
+    //     value = (value / 16) * 16;
+    // }
 
-    // Reward passed pawns (no enemy pawns in front of them)
-    let is_passed_pawn = |file: File| -> bool {
-        for rank_index in (pawn_rank.to_index() + 1)..8 {
-            let sq = Square::make_square(Rank::from_index(rank_index), file);
-            if board.piece_on(sq) == Some(Piece::Pawn) {
-                return false;
-            }
-        }
-        true
-    };
+    // Add tempo
+    value += 28
+        * if board.side_to_move() == Color::White {
+            1
+        } else {
+            -1
+        };
 
-    if is_passed_pawn(pawn_file) {
-        score += 100; // Passed pawn reward
-    }
+    // Apply rule50 scaling
+    let rule50_val = rule50(board);
+    value = value * (100 - rule50_val) / 100;
 
-    score
+    value
 }
 
-fn rook_on_open_file(rook_sq: Square, board: &Board) -> bool {
-    let rook_file = rook_sq.get_file();
-
-    // An open file means no pawns on the rook's file
-    for rank_index in 0..8 {
-        let sq = Square::make_square(Rank::from_index(rank_index), rook_file);
-        if board.piece_on(sq) == Some(Piece::Pawn) {
-            return false; // Not an open file
-        }
-    }
-
-    true // Open file if no pawns found
+// Stub implementations
+fn rule50(_board: &Board) -> i32 {
+    0
+}
+fn scale_factor(_board: &Board, _eg_eval: i32) -> i32 {
+    64
 }
 
-fn positional_value(piece: Piece, square: Square, is_endgame: bool, side_to_move: Color) -> i32 {
-    let mut index = square.to_index();
-
-    if side_to_move == Color::Black {
-        index = 63 - index;
-    }
-
+fn get_piece_index(piece: &Piece) -> usize {
     match piece {
-        Piece::Pawn => PAWN_TABLE[index],
-        Piece::Knight => KNIGHT_TABLE[index],
-        Piece::Bishop => BISHOP_TABLE[index],
-        Piece::Rook => ROOK_TABLE[index],
-        Piece::Queen => QUEEN_TABLE[index],
-        Piece::King => {
-            if is_endgame {
-                KING_ENDGAME_TABLE[index]
-            } else {
-                KING_TABLE[index]
-            }
-        }
+        Piece::Pawn => 0,
+        Piece::Knight => 1,
+        Piece::Bishop => 2,
+        Piece::Rook => 3,
+        Piece::Queen => 4,
+        Piece::King => 5,
     }
 }

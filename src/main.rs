@@ -175,9 +175,17 @@ impl ChessEngine {
         let mut best_score = -30000;
 
         // Iterative deepening
-        for current_depth in 1..=depth {
-            if self.time_up() {
-                break;
+        for current_depth in 1.. {
+            if let Some(time_limit) = time_limit {
+                if let Some(start) = self.start_time {
+                    if start.elapsed() >= time_limit {
+                        break;
+                    }
+                }
+            } else {
+                if current_depth > depth {
+                    break;
+                }
             }
 
             let (move_found, score) = self.search_root(board, current_depth);
@@ -223,10 +231,6 @@ impl ChessEngine {
         let moves = self.order_moves(board, None, 0);
         
         for (i, chess_move) in moves.iter().enumerate() {
-            if self.time_up() {
-                break;
-            }
-
             let new_board = board.make_move_new(*chess_move);
             let mut score;
 
@@ -257,14 +261,6 @@ impl ChessEngine {
     fn negamax(&mut self, board: &Board, depth: u8, mut alpha: i32, beta: i32, ply: usize, do_null: bool) -> i32 {
         self.stats.nodes_searched += 1;
         self.nodes_since_check += 1;
-
-        // Periodic time check (every 4096 nodes)
-        if self.nodes_since_check >= 4096 {
-            self.nodes_since_check = 0;
-            if self.time_up() {
-                return 0;
-            }
-        }
 
         // Check transposition table
         let hash = board.get_hash();
@@ -331,10 +327,6 @@ impl ChessEngine {
         let moves = self.order_moves(board, hash_move, ply);
         
         for chess_move in moves {
-            if self.time_up() {
-                break;
-            }
-
             move_count += 1;
             let new_board = board.make_move_new(chess_move);
             let mut score;
@@ -591,14 +583,6 @@ impl ChessEngine {
         score
     }
 
-    fn time_up(&self) -> bool {
-        if let (Some(start), Some(limit)) = (self.start_time, self.time_limit) {
-            start.elapsed() >= limit
-        } else {
-            false
-        }
-    }
-
     // Helper functions for transposition table
     fn pack_move(&self, chess_move: ChessMove) -> u16 {
         let from = chess_move.get_source().to_index() as u16;
@@ -694,19 +678,28 @@ fn calculate_time_limit(
     movetime: Option<u64>,
     side_to_move: Color,
 ) -> Option<Duration> {
+    // Case 1: movetime override
     if let Some(ms) = movetime {
         return Some(Duration::from_millis(ms));
     }
 
+    // Time remaining for the current player
     let time_left = match side_to_move {
-        Color::White => wtime,
-        Color::Black => btime,
-    }?;
+        Color::White => wtime?,
+        Color::Black => btime?,
+    };
 
-    let moves_remaining = movestogo.unwrap_or(40).max(1); // Avoid division by zero
-    let buffer_divisor = moves_remaining + 1; // Leave some buffer time
+    // Parameters
+    let reserve_fraction = 0.1; // Leave 10% of time as reserve
+    let moves_remaining = movestogo.unwrap_or(40).max(1);
 
-    Some(Duration::from_millis(time_left / buffer_divisor))
+    // Avoid spending all time in one move
+    let usable_time = (time_left as f64) * (1.0 - reserve_fraction);
+
+    // More sophisticated time distribution: spend more time in earlier moves
+    let time_per_move = (usable_time / (moves_remaining as f64).sqrt()).min(time_left as f64 * 0.9);
+
+    Some(Duration::from_millis(time_per_move as u64))
 }
 
 fn main() {
@@ -761,7 +754,7 @@ fn main() {
                     nodes: _,
                 },
             )) => {
-                let search_depth = depth.unwrap_or(8).min(25) as u8; // Increased default depth
+                let search_depth = depth.unwrap_or(10).min(25) as u8; // Increased default depth
                 let time_limit = calculate_time_limit(
                     wtime, btime, movestogo, movetime, current_board.side_to_move()
                 );
