@@ -150,8 +150,8 @@ pub fn evaluate_board(board: &Board) -> i32 {
 
             imbalance_total += if bishop_count[0] == 2 { 1438 } else { 0 }
                 - if bishop_count[1] == 2 { 1438 } else { 0 };
-            mg_total += (imbalance_total / 16) << 0;
-            eg_total += (imbalance_total / 16) << 0;
+            mg_total += imbalance_total / 16;
+            eg_total += imbalance_total / 16;
 
             // Pawns
         }

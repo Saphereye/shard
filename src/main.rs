@@ -182,10 +182,8 @@ impl ChessEngine {
                         break;
                     }
                 }
-            } else {
-                if current_depth > depth {
+            } else if current_depth > depth {
                     break;
-                }
             }
 
             let (move_found, score) = self.search_root(board, current_depth);
@@ -573,7 +571,7 @@ impl ChessEngine {
     }
 
     fn evaluate_position(&self, board: &Board) -> i32 {
-        let mut score = evaluate_board(board) as i32;
+        let mut score = evaluate_board(board);
         
         // Flip score for black to move
         if board.side_to_move() == Color::Black {
@@ -724,7 +722,7 @@ fn main() {
                 if let Some(fen_string) = fen {
                     current_board = Board::from_str(&fen_string)
                         .unwrap_or_else(|_| {
-                            eprintln!("Invalid FEN: {}", fen_string);
+                            eprintln!("Invalid FEN: {fen_string}");
                             Board::default()
                         });
                 } else {
@@ -737,7 +735,7 @@ fn main() {
                             current_board = current_board.make_move_new(chess_move);
                         }
                         Err(e) => {
-                            eprintln!("Invalid move {}: {}", move_str, e);
+                            eprintln!("Invalid move {move_str}: {e}");
                             break;
                         }
                     }
@@ -760,7 +758,7 @@ fn main() {
                 );
 
                 let (best_move, _score) = engine.search(&current_board, search_depth, time_limit);
-                println!("bestmove {}", best_move);
+                println!("bestmove {best_move}");
                 
                 // More aggressive transposition table cleanup
                 if engine.transposition_table.iter().filter(|e| e.is_some()).count() > 800_000 {
