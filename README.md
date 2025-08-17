@@ -1,15 +1,11 @@
 # Shard Chess Engine
 
-<img src="https://github.com/Saphereye/shard/blob/main/assets/demo.png" width="300" />
-
 ## Overview
 A fast, hackable chess engine written in Rust. Shard speaks UCI and uses a Negamax search with alpha-beta pruning and a custom evaluation function.
 
 ## Example Game
 Here is a game of Me Vs Shard (0 - 1)
-
-<iframe src="https://lichess.org/embed/game/w8miqc1G?theme=auto&bg=auto#0"
-width=600 height=397 frameborder=0></iframe>
+![Demo](./assets/gameplay.gif)
 
 ### PGN
 ```
