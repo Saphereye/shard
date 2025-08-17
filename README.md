@@ -1,23 +1,23 @@
 # Shard Chess Engine
-
-## Overview
-A fast, hackable chess engine written in Rust. Shard speaks UCI and uses a Negamax search with alpha-beta pruning and a custom evaluation function.
+**Shard** is a fast and hackable chess engine written in Rust.  
+It supports the UCI (Universal Chess Interface) protocol and uses a Negamax search with alpha–beta pruning, powered by a custom evaluation function.
 
 ## Example Game
-Here is a game of Me Vs Shard (0 - 1)
-![Demo](./assets/gameplay.gif)
+Here’s a sample game between me and Shard (result: 0–1).
+
+<p align="center">
+  <img src="assets/gameplay.gif" alt="Demo" width="400"/>
+</p>
+
 
 ### PGN
 ```
-[Event "?"]
-[Site "?"]
-[Round "?"]
 [White "Saphereye"]
 [Black "Shard"]
 [Result "0-1"]
 [ECO "A45"]
 [GameDuration "00:08:22"]
-[Opening "Queen's pawn game"]
+[Opening "Indian Defense"]
 [PlyCount "50"]
 [TimeControl "40/300"]
 
@@ -37,7 +37,7 @@ Rxh7# {+289.99/10 0.15s, Black mates} 0-1
 
 ## Quickstart
 Create the executable at `./target/release/shard` using
-```
+```bash
 cargo build --release
 ```
 
@@ -46,7 +46,3 @@ This executable can be registered in a chess gui (e.g. cutechess) to play agains
 ## License
 
 This project is licensed under the GNU GPLv3 License. See the [LICENSE](LICENSE) file for details.
-
----
-
-Feel free to contribute or open an issue if you have any feedback or suggestions!
