@@ -77,6 +77,7 @@ pub fn evaluate_board(board: &Board) -> i32 {
             let rank = square.get_rank().to_index();
             let file = square.get_file().to_index();
             let piece_idx = get_piece_index(&piece);
+
             // Material values
             let mg_value = MG_PIECE_VALUES[piece_idx] as i32;
             let eg_value = EG_PIECE_VALUES[piece_idx] as i32;
@@ -170,11 +171,6 @@ pub fn evaluate_board(board: &Board) -> i32 {
 
     // Interpolate between middle game and endgame
     let mut value = (mg_total * phase + eg_total * (128 - phase)) / 128;
-
-    // Apply rounding
-    // if apply_rounding {
-    //     value = (value / 16) * 16;
-    // }
 
     // Add tempo
     value += 28

@@ -718,6 +718,87 @@ fn main() {
             Ok((_, UCICommand::IsReady)) => {
                 println!("readyok");
             }
+            Ok((_, UCICommand::Eval)) => {
+                let mut evaluation = evaluate_board(&current_board) as f64;
+                evaluation /= 100.0;
+                println!("Evaluation: {}{}", if evaluation > 0.0 { "+" } else { "-" }, evaluation.abs());
+            }
+            Ok((_, UCICommand::Display)) => {
+                let mut result = String::new();
+
+                // Top border
+                result.push_str("  +---+---+---+---+---+---+---+---+\n");
+
+                // Iterate through ranks (8 to 1, top to bottom)
+                for rank in (0..8).rev() {
+                    result.push_str(&format!("{} |", rank + 1)); // Rank numbers
+
+                    for file in 0..8 {
+                        let square = chess::Square::make_square(
+                            chess::Rank::from_index(rank), 
+                            chess::File::from_index(file)
+                        );
+
+                        let piece_char = match current_board.piece_on(square) {
+                            Some(piece) => {
+                                let piece_symbol = match piece {
+                                    chess::Piece::Pawn => 'P',
+                                    chess::Piece::Rook => 'R',
+                                    chess::Piece::Knight => 'N',
+                                    chess::Piece::Bishop => 'B',
+                                    chess::Piece::Queen => 'Q',
+                                    chess::Piece::King => 'K',
+                                };
+
+                                // Use lowercase for black pieces, uppercase for white
+                                if current_board.color_on(square) == Some(chess::Color::White) {
+                                    piece_symbol
+                                } else {
+                                    piece_symbol.to_ascii_lowercase()
+                                }
+                            }
+                            None => ' '
+                        };
+
+                        result.push_str(&format!(" {piece_char} |"));
+                    }
+
+                    result.push('\n');
+                    result.push_str("  +---+---+---+---+---+---+---+---+\n");
+                }
+
+                // File letters at bottom
+                result.push_str("    a   b   c   d   e   f   g   h\n");
+
+                // Add game info
+                result.push_str(&format!("\nSide to move: {}\n", 
+                        if current_board.side_to_move() == chess::Color::White { "White" } else { "Black" }));
+
+                if let Some(ep_square) = current_board.en_passant() {
+                    result.push_str(&format!("En passant: {ep_square}\n"));
+                }
+
+                let castling_rights = current_board.castle_rights(chess::Color::White);
+                let black_castling = current_board.castle_rights(chess::Color::Black);
+                if castling_rights != chess::CastleRights::NoRights || black_castling != chess::CastleRights::NoRights {
+                    result.push_str("Castling: ");
+                    if castling_rights.has_kingside() { result.push('K'); }
+                    if castling_rights.has_queenside() { result.push('Q'); }
+                    if black_castling.has_kingside() { result.push('k'); }
+                    if black_castling.has_queenside() { result.push('q'); }
+                    result.push('\n');
+                }
+
+                println!("{result}");
+            }
+            Ok((_, UCICommand::Bench)) => {
+                println!("Running benchmark...");
+                let mut benchmark_engine = ChessEngine::new();
+                // Stockfish gives this position an evaluation of +0.2
+                let benchmark_board = Board::from_str("r2q1rk1/2p1bppp/p1np1n2/1p2p3/3PP1b1/1BP1BN2/PP3PPP/RN1QR1K1 b - - 2 10").unwrap();
+                let (best_move, _) = benchmark_engine.search(&benchmark_board, 10, None);
+                println!("Best move: {best_move}");
+            }
             Ok((_, UCICommand::Position { fen, moves })) => {
                 if let Some(fen_string) = fen {
                     current_board = Board::from_str(&fen_string)
@@ -752,7 +833,7 @@ fn main() {
                     nodes: _,
                 },
             )) => {
-                let search_depth = depth.unwrap_or(10).min(25) as u8; // Increased default depth
+                let search_depth = depth.unwrap_or(10) as u8; // Increased default depth
                 let time_limit = calculate_time_limit(
                     wtime, btime, movestogo, movetime, current_board.side_to_move()
                 );

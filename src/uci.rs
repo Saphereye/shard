@@ -25,6 +25,9 @@ pub enum UCICommand {
         depth: Option<u64>,
         nodes: Option<u64>,
     },
+    Bench,
+    Eval,
+    Display,
     Quit,
 }
 
@@ -96,6 +99,21 @@ pub fn parse_isready(input: &str) -> IResult<&str, UCICommand> {
     Ok((input, UCICommand::IsReady))
 }
 
+pub fn parse_bench(input: &str) -> IResult<&str, UCICommand> {
+    let (input, _) = tag("bench")(input)?;
+    Ok((input, UCICommand::Bench))
+}
+
+pub fn parse_display(input: &str) -> IResult<&str, UCICommand> {
+    let (input, _) = tag("display")(input)?;
+    Ok((input, UCICommand::Display))
+}
+
+pub fn parse_eval(input: &str) -> IResult<&str, UCICommand> {
+    let (input, _) = tag("eval")(input)?;
+    Ok((input, UCICommand::Eval))
+}
+
 fn parse_fen(input: &str) -> IResult<&str, String> {
     let (input, fen) =
         take_until::<&str, &str, NomError<&str>>(" moves")(input).or(Ok((input, input)))?;
@@ -126,7 +144,7 @@ pub fn parse_position(input: &str) -> IResult<&str, UCICommand> {
     }?;
 
     // Now parse the moves if present
-    let (input, moves) = parse_moves(input)?;
+    let (_, moves) = parse_moves(input)?;
 
     Ok(("", UCICommand::Position { fen, moves }))
 }
@@ -138,6 +156,9 @@ pub fn parse(input: &str) -> IResult<&str, UCICommand> {
         parse_position,
         parse_go,
         parse_quit,
+        parse_bench,
+        parse_eval,
+        parse_display,
     ))(input)
 }
 
@@ -157,6 +178,22 @@ mod tests {
     fn test_parse_isready() {
         let input = "isready";
         let expected = UCICommand::IsReady;
+        let result = parse(input);
+        assert_eq!(result, Ok(("", expected)));
+    }
+
+    #[test]
+    fn test_parse_bench() {
+        let input = "bench";
+        let expected = UCICommand::Bench;
+        let result = parse(input);
+        assert_eq!(result, Ok(("", expected)));
+    }
+
+    #[test]
+    fn test_parse_eval() {
+        let input = "eval";
+        let expected = UCICommand::Eval;
         let result = parse(input);
         assert_eq!(result, Ok(("", expected)));
     }
