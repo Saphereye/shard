@@ -267,7 +267,7 @@ impl ChessEngine {
             if entry.key == (hash >> 32) as u32 && entry.depth >= depth {
                 self.stats.transposition_hits += 1;
                 let score = self.adjust_mate_score(entry.score as i32, ply);
-                
+
                 match entry.node_type() {
                     NodeType::Exact => return score,
                     NodeType::LowerBound => {
@@ -283,7 +283,7 @@ impl ChessEngine {
                     }
                 }
             }
-            
+
             // Extract hash move for move ordering
             if entry.key == (hash >> 32) as u32 {
                 self.unpack_move(entry.best_move)
@@ -310,7 +310,7 @@ impl ChessEngine {
         if do_null && depth >= 3 && board.checkers().popcnt() == 0 && self.has_non_pawn_material(board) {
             let null_board = board.null_move().unwrap_or(*board);
             let null_score = -self.negamax(&null_board, depth - 3, -beta, -beta + 1, ply + 1, false);
-            
+
             if null_score >= beta {
                 self.stats.null_move_cutoffs += 1;
                 return beta;
@@ -323,7 +323,7 @@ impl ChessEngine {
         let mut move_count = 0;
 
         let moves = self.order_moves(board, hash_move, ply);
-        
+
         for chess_move in moves {
             move_count += 1;
             let new_board = board.make_move_new(chess_move);
@@ -334,11 +334,11 @@ impl ChessEngine {
                board.piece_on(chess_move.get_dest()).is_none() && // Not a capture
                chess_move.get_promotion().is_none() && // Not a promotion
                new_board.checkers().popcnt() == 0 { // Doesn't give check
-                
+
                 // Reduce depth for late moves
                 let reduction = if move_count > 8 { 2 } else { 1 };
                 score = -self.negamax(&new_board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, true);
-                
+
                 // If reduced search fails high, re-search with full depth
                 if score > alpha {
                     score = -self.negamax(&new_board, depth - 1, -alpha - 1, -alpha, ply + 1, true);
@@ -349,7 +349,7 @@ impl ChessEngine {
             } else {
                 // Principal Variation Search
                 score = -self.negamax(&new_board, depth - 1, -alpha - 1, -alpha, ply + 1, true);
-                
+
                 // If PVS search fails high, re-search with full window
                 if score > alpha && score < beta {
                     score = -self.negamax(&new_board, depth - 1, -beta, -alpha, ply + 1, true);
@@ -366,7 +366,7 @@ impl ChessEngine {
             // Beta cutoff
             if alpha >= beta {
                 self.stats.beta_cutoffs += 1;
-                
+
                 // Update killer moves and history for quiet moves
                 if board.piece_on(chess_move.get_dest()).is_none() {
                     self.killer_moves.add_killer(ply, chess_move);
@@ -417,7 +417,6 @@ impl ChessEngine {
         }
 
         let stand_pat = self.evaluate_position(board);
-        
         if stand_pat >= beta {
             return beta;
         }
@@ -459,19 +458,21 @@ impl ChessEngine {
     }
 
     fn order_moves(&self, board: &Board, hash_move: Option<ChessMove>, ply: usize) -> Vec<ChessMove> {
-        let mut moves: Vec<ChessMove> = MoveGen::new_legal(board).collect();
-        
-        // Score moves for ordering
-        moves.sort_by_key(|&mv| {
-            let mut score = 0;
+        let moves: Vec<ChessMove> = MoveGen::new_legal(board).collect();
 
+        // Pre-compute values that don't change per move
+        let side_to_move = board.side_to_move();
+
+        // Score all moves first (avoiding repeated computations in sort)
+        let mut scored_moves: Vec<(ChessMove, i32)> = moves.into_iter().map(|mv| {
+            let mut score = 0;
             // Hash move gets highest priority
             if Some(mv) == hash_move {
-                return -10000;
+                return (mv, -10000);
             }
-
+            let dest = mv.get_dest();
             // Captures with SEE
-            if let Some(captured_piece) = board.piece_on(mv.get_dest()) {
+            if let Some(captured_piece) = board.piece_on(dest) {
                 let see_score = self.see(board, mv);
                 if see_score >= 0 {
                     let victim_value = self.piece_value(captured_piece);
@@ -480,30 +481,53 @@ impl ChessEngine {
                     score -= see_score; // Bad captures get negative score
                 }
             }
-
             // Promotions
             if let Some(promotion) = mv.get_promotion() {
                 score -= 7000 + self.piece_value(promotion);
             }
 
-            // Killer moves
+            // Killer moves (check this before history for better cache locality)
             if self.killer_moves.is_killer(ply, mv) {
                 score -= 5000;
             }
 
-            // History heuristic
-            score -= self.history_table.get_history(board.side_to_move(), mv) / 10;
+            // History heuristic (pre-divided to avoid division in sort)
+            score -= self.history_table.get_history(side_to_move, mv) / 10;
 
-            // Checks
-            let new_board = board.make_move_new(mv);
-            if new_board.checkers().popcnt() > 0 {
-                score -= 100;
+            // Checks (most expensive, do last and only for non-captures/promotions)
+            if score > -7000 { // Skip if already high-priority move
+                let new_board = board.make_move_new(mv);
+                if new_board.checkers().popcnt() > 0 {
+                    score -= 100;
+                }
             }
 
-            score
-        });
+            (mv, score)
+        }).collect();
 
-        moves
+        // Efficient insertion sort optimized for small arrays and cache locality
+        Self::insertion_sort(&mut scored_moves);
+
+        // Extract just the moves
+        scored_moves.into_iter().map(|(mv, _)| mv).collect()
+    }
+
+    #[inline]
+    fn insertion_sort(arr: &mut [(ChessMove, i32)]) {
+        for i in 1..arr.len() {
+            let key = arr[i];
+            let mut j = i;
+
+            // Use unchecked access for better performance in hot path
+            // Safety: j > 0 initially and decrements, bounds are guaranteed
+            while j > 0 && unsafe { arr.get_unchecked(j - 1) }.1 > key.1 {
+                unsafe {
+                    *arr.get_unchecked_mut(j) = *arr.get_unchecked_mut(j - 1);
+                }
+                j -= 1;
+            }
+            arr[j] = key;
+        }
     }
 
     fn order_captures(&self, board: &Board, mut moves: Vec<ChessMove>) -> Vec<ChessMove> {
