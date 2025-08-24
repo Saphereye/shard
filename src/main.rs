@@ -407,12 +407,18 @@ impl ChessEngine {
 
     fn quiescence_search(&mut self, board: &Board, mut alpha: i16, beta: i16, ply: usize) -> i16 {
         self.stats.nodes_searched += 1;
+        let mut board_evaluation = evaluate_board(board);
+        board_evaluation *= match board.side_to_move() {
+            Color::White => 1,
+            Color::Black => -1
+        };
+
 
         if ply > 5 {
-            return evaluate_board(board);
+            return board_evaluation;
         }
 
-        let stand_pat = evaluate_board(board);
+        let stand_pat = board_evaluation;
         if stand_pat >= beta {
             return beta;
         }
