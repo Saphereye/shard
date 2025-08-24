@@ -1,4 +1,5 @@
 use chess::*;
+use timecat::CHECKMATE_SCORE;
 use std::{
     fmt::Debug,
     str::FromStr,
@@ -76,7 +77,7 @@ impl KillerMoves {
 // History heuristic for move ordering
 #[derive(Debug)]
 struct HistoryTable {
-    table: [[[i32; 64]; 64]; 2], // [color][from][to]
+    table: [[[i16; 64]; 64]; 2], // [color][from][to]
 }
 
 impl Default for HistoryTable {
@@ -93,7 +94,7 @@ impl HistoryTable {
         let from = chess_move.get_source().to_index();
         let to = chess_move.get_dest().to_index();
         
-        let bonus = (depth as i32) * (depth as i32);
+        let bonus = (depth as i16) * (depth as i16);
         self.table[color_idx][from][to] += bonus;
         
         // Prevent overflow
@@ -102,7 +103,7 @@ impl HistoryTable {
         }
     }
     
-    fn get_history(&self, color: Color, chess_move: ChessMove) -> i32 {
+    fn get_history(&self, color: Color, chess_move: ChessMove) -> i16 {
         let color_idx = if color == Color::White { 0 } else { 1 };
         let from = chess_move.get_source().to_index();
         let to = chess_move.get_dest().to_index();
@@ -164,7 +165,7 @@ impl ChessEngine {
         }
     }
 
-    pub fn search(&mut self, board: &Board, depth: u8, time_limit: Option<Duration>) -> (ChessMove, i32) {
+    pub fn search(&mut self, board: &Board, depth: u8, time_limit: Option<Duration>) -> (ChessMove, i16) {
         self.stats = SearchStats::default();
         self.start_time = Some(Instant::now());
         self.time_limit = time_limit;
@@ -172,7 +173,7 @@ impl ChessEngine {
         self.nodes_since_check = 0;
         
         let mut best_move = None;
-        let mut best_score = -30000;
+        let mut best_score = -CHECKMATE_SCORE;
 
         // Iterative deepening
         for current_depth in 1.. {
@@ -207,11 +208,6 @@ impl ChessEngine {
                     );
                 }
             }
-
-            // If we found a mate, no need to search deeper
-            if score.abs() > 29000 {
-                break;
-            }
         }
 
         (best_move.unwrap_or_else(|| {
@@ -220,11 +216,11 @@ impl ChessEngine {
         }), best_score)
     }
 
-    fn search_root(&mut self, board: &Board, depth: u8) -> (Option<ChessMove>, i32) {
+    fn search_root(&mut self, board: &Board, depth: u8) -> (Option<ChessMove>, i16) {
         let mut best_move = None;
-        let mut best_score = -30000;
-        let mut alpha = -30000;
-        let beta = 30000;
+        let mut best_score = -CHECKMATE_SCORE;
+        let mut alpha = -CHECKMATE_SCORE;
+        let beta = CHECKMATE_SCORE;
 
         let moves = self.order_moves(board, None, 0);
         
@@ -256,7 +252,7 @@ impl ChessEngine {
         (best_move, best_score)
     }
 
-    fn negamax(&mut self, board: &Board, depth: u8, mut alpha: i32, beta: i32, ply: usize, do_null: bool) -> i32 {
+    fn negamax(&mut self, board: &Board, depth: u8, mut alpha: i16, beta: i16, ply: usize, do_null: bool) -> i16 {
         self.stats.nodes_searched += 1;
         self.nodes_since_check += 1;
 
@@ -266,7 +262,7 @@ impl ChessEngine {
         let hash_move = if let Some(ref entry) = self.transposition_table[tt_index] {
             if entry.key == (hash >> 32) as u32 && entry.depth >= depth {
                 self.stats.transposition_hits += 1;
-                let score = self.adjust_mate_score(entry.score as i32, ply);
+                let score = self.adjust_mate_score(entry.score, ply);
 
                 match entry.node_type() {
                     NodeType::Exact => return score,
@@ -296,7 +292,7 @@ impl ChessEngine {
 
         // Terminal node evaluation
         match board.status() {
-            BoardStatus::Checkmate => return -29000 + ply as i32, // Prefer faster mates
+            BoardStatus::Checkmate => return -CHECKMATE_SCORE - ply as i16, // Prefer faster mates
             BoardStatus::Stalemate => return 0,
             BoardStatus::Ongoing => {}
         }
@@ -319,7 +315,7 @@ impl ChessEngine {
 
         let original_alpha = alpha;
         let mut best_move = None;
-        let mut best_score = -30000;
+        let mut best_score = -CHECKMATE_SCORE;
         let mut move_count = 0;
 
         let moves = self.order_moves(board, hash_move, ply);
@@ -377,7 +373,7 @@ impl ChessEngine {
         }
 
         // Store in transposition table with better replacement scheme
-        if best_move.is_some() {
+        if let Some(best_move) = best_move {
             let node_type = if best_score <= original_alpha {
                 2 // UpperBound
             } else if best_score >= beta {
@@ -397,9 +393,9 @@ impl ChessEngine {
             if should_replace {
                 self.transposition_table[tt_index] = Some(TranspositionEntry {
                     key: (hash >> 32) as u32,
-                    best_move: self.pack_move(best_move.unwrap()),
+                    best_move: self.pack_move(best_move),
                     depth,
-                    score: self.adjust_mate_score_for_storage(best_score, ply) as i16,
+                    score: self.adjust_mate_score_for_storage(best_score, ply),
                     node_type,
                     age: self.tt_age,
                 });
@@ -409,20 +405,20 @@ impl ChessEngine {
         best_score
     }
 
-    fn quiescence_search(&mut self, board: &Board, mut alpha: i32, beta: i32, ply: usize) -> i32 {
+    fn quiescence_search(&mut self, board: &Board, mut alpha: i16, beta: i16, ply: usize) -> i16 {
         self.stats.nodes_searched += 1;
 
-        if ply > 20 {
-            return self.evaluate_position(board);
+        if ply > 5 {
+            return evaluate_board(board);
         }
 
-        let stand_pat = self.evaluate_position(board);
+        let stand_pat = evaluate_board(board);
         if stand_pat >= beta {
             return beta;
         }
 
         // Delta pruning - if we're too far behind, don't bother
-        if stand_pat < alpha - 900 {
+        if stand_pat < alpha - 300 {
             return alpha;
         }
 
@@ -464,7 +460,7 @@ impl ChessEngine {
         let side_to_move = board.side_to_move();
 
         // Score all moves first (avoiding repeated computations in sort)
-        let mut scored_moves: Vec<(ChessMove, i32)> = moves.into_iter().map(|mv| {
+        let mut scored_moves: Vec<(ChessMove, i16)> = moves.into_iter().map(|mv| {
             let mut score = 0;
             // Hash move gets highest priority
             if Some(mv) == hash_move {
@@ -513,7 +509,7 @@ impl ChessEngine {
     }
 
     #[inline]
-    fn insertion_sort(arr: &mut [(ChessMove, i32)]) {
+    fn insertion_sort(arr: &mut [(ChessMove, i16)]) {
         for i in 1..arr.len() {
             let key = arr[i];
             let mut j = i;
@@ -555,7 +551,7 @@ impl ChessEngine {
     }
 
     // Static Exchange Evaluation - simplified version
-    fn see(&self, board: &Board, chess_move: ChessMove) -> i32 {
+    fn see(&self, board: &Board, chess_move: ChessMove) -> i16 {
         let to = chess_move.get_dest();
         let _from = chess_move.get_source();
         
@@ -583,7 +579,7 @@ impl ChessEngine {
         (pieces ^ pawns ^ king).popcnt() > 0
     }
 
-    fn piece_value(&self, piece: Piece) -> i32 {
+    fn piece_value(&self, piece: Piece) -> i16 {
         match piece {
             Piece::Pawn => 100,
             Piece::Knight => 320,
@@ -592,17 +588,6 @@ impl ChessEngine {
             Piece::Queen => 900,
             Piece::King => 10000,
         }
-    }
-
-    fn evaluate_position(&self, board: &Board) -> i32 {
-        let mut score = evaluate_board(board);
-        
-        // Flip score for black to move
-        if board.side_to_move() == Color::Black {
-            score = -score;
-        }
-        
-        score
     }
 
     // Helper functions for transposition table
@@ -643,21 +628,21 @@ impl ChessEngine {
         Some(ChessMove::new(from, to, promotion))
     }
 
-    fn adjust_mate_score(&self, score: i32, ply: usize) -> i32 {
-        if score > 29000 {
-            score - ply as i32
-        } else if score < -29000 {
-            score + ply as i32
+    fn adjust_mate_score(&self, score: i16, ply: usize) -> i16 {
+        if score > CHECKMATE_SCORE {
+            score - ply as i16
+        } else if score < -CHECKMATE_SCORE {
+            score + ply as i16
         } else {
             score
         }
     }
 
-    fn adjust_mate_score_for_storage(&self, score: i32, ply: usize) -> i32 {
-        if score > 29000 {
-            score + ply as i32
-        } else if score < -29000 {
-            score - ply as i32
+    fn adjust_mate_score_for_storage(&self, score: i16, ply: usize) -> i16 {
+        if score > CHECKMATE_SCORE {
+            score + ply as i16
+        } else if score < -CHECKMATE_SCORE {
+            score - ply as i16
         } else {
             score
         }
