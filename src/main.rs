@@ -214,7 +214,7 @@ impl ChessEngine {
 
     fn get_pv(&self, mut board: Board) -> Vec<ChessMove> {
         let mut pv = Vec::new();
-        let max_ply = 256; // like Stockfish's MAX_PLY safeguard
+        let max_ply = 8;
 
         for _ in 0..max_ply {
             let hash = board.get_hash();
@@ -237,14 +237,14 @@ impl ChessEngine {
 
     fn format_score(&self, score: i16) -> String {
         const MATE_THRESHOLD: i16 = CHECKMATE_SCORE - 1000;
-        
+
         if score > MATE_THRESHOLD {
             // Positive mate score - we're winning
             let mate_in = (CHECKMATE_SCORE - score + 1) / 2;
             format!("mate {}", mate_in)
         } else if score < -MATE_THRESHOLD {
-            // Negative mate score - we're getting mated  
-            let mate_in = (-CHECKMATE_SCORE - score + 1) / 2;
+            // Negative mate score - we're getting mated
+            let mate_in = (CHECKMATE_SCORE + score + 1) / 2;
             format!("mate -{}", mate_in)
         } else {
             // Regular centipawn score
@@ -309,7 +309,7 @@ impl ChessEngine {
                     key: (hash >> 32) as u32,
                     best_move: self.pack_move(best_move),
                     depth,
-                    score: self.adjust_mate_score_for_storage(best_score, 0),
+                    score: best_score,
                     node_type,
                     age: self.tt_age,
                 });
