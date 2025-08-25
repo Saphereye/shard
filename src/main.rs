@@ -1,9 +1,6 @@
 use chess::*;
-use timecat::CHECKMATE_SCORE;
 use std::{
-    fmt::Debug,
-    str::FromStr,
-    time::{Duration, Instant},
+    fmt::Debug, str::FromStr, time::{Duration, Instant}
 };
 
 mod evaluate;
@@ -11,6 +8,8 @@ use evaluate::evaluate_board;
 
 mod uci;
 use uci::*;
+
+const CHECKMATE_SCORE: i16 = 25000;
 
 // Optimized transposition table entry - packed into 16 bytes
 #[derive(Clone, Debug)]
@@ -165,15 +164,14 @@ impl ChessEngine {
         }
     }
 
-    pub fn search(&mut self, board: &Board, depth: u8, time_limit: Option<Duration>) -> (ChessMove, i16) {
+    pub fn search(&mut self, board: &Board, depth: u8, time_limit: Option<Duration>) -> ChessMove {
         self.stats = SearchStats::default();
         self.start_time = Some(Instant::now());
         self.time_limit = time_limit;
         self.tt_age = self.tt_age.wrapping_add(1);
         self.nodes_since_check = 0;
-        
-        let mut best_move = None;
-        let mut best_score = -CHECKMATE_SCORE;
+
+        let mut pv = vec![];
 
         // Iterative deepening
         for current_depth in 1.. {
@@ -184,39 +182,77 @@ impl ChessEngine {
                     }
                 }
             } else if current_depth > depth {
-                    break;
+                break;
             }
 
-            let (move_found, score) = self.search_root(board, current_depth);
-            
-            if let Some(mv) = move_found {
-                best_move = Some(mv);
-                best_score = score;
-                
-                // Print search info
-                if let Some(start) = self.start_time {
-                    let elapsed = start.elapsed().as_millis();
-                    let nps = if elapsed > 0 {
-                        (self.stats.nodes_searched * 1000) / elapsed as u64
-                    } else {
-                        0
-                    };
-                    
-                    println!(
-                        "info depth {} score cp {} nodes {} time {} nps {} pv {}",
-                        current_depth, score, self.stats.nodes_searched, elapsed, nps, mv
-                    );
-                }
+            let score = self.search_root(board, current_depth);
+
+            pv = self.get_pv(*board);
+            let pv_str = pv.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(" "); 
+
+            // Print search info
+            if let Some(start) = self.start_time {
+                let elapsed = start.elapsed().as_millis();
+                let nps = if elapsed > 0 {
+                    (self.stats.nodes_searched * 1000) / elapsed as u64
+                } else {
+                    0
+                };
+
+                // Format score with mate detection
+                let score_str = self.format_score(score);
+
+                println!(
+                    "info depth {} score {} nodes {} time {} nps {} pv {}",
+                    current_depth, score_str, self.stats.nodes_searched, elapsed, nps, pv_str
+                );
             }
         }
 
-        (best_move.unwrap_or_else(|| {
-            // Fallback: return any legal move
-            MoveGen::new_legal(board).next().expect("No legal moves available")
-        }), best_score)
+        pv[0]
     }
 
-    fn search_root(&mut self, board: &Board, depth: u8) -> (Option<ChessMove>, i16) {
+    fn get_pv(&self, mut board: Board) -> Vec<ChessMove> {
+        let mut pv = Vec::new();
+        let max_ply = 256; // like Stockfish's MAX_PLY safeguard
+
+        for _ in 0..max_ply {
+            let hash = board.get_hash();
+            let tt_index = (hash as usize) % self.tt_size;
+
+            if let Some(ref entry) = self.transposition_table[tt_index] {
+                if entry.key == (hash >> 32) as u32 {
+                    if let Some(mv) = self.unpack_move(entry.best_move) {
+                        pv.push(mv);
+                        board = board.make_move_new(mv);
+                        continue; // keep following
+                    }
+                }
+            }
+            break; // stop if no continuation found
+        }
+
+        pv
+    }
+
+    fn format_score(&self, score: i16) -> String {
+        const MATE_THRESHOLD: i16 = CHECKMATE_SCORE - 1000;
+        
+        if score > MATE_THRESHOLD {
+            // Positive mate score - we're winning
+            let mate_in = (CHECKMATE_SCORE - score + 1) / 2;
+            format!("mate {}", mate_in)
+        } else if score < -MATE_THRESHOLD {
+            // Negative mate score - we're getting mated  
+            let mate_in = (-CHECKMATE_SCORE - score + 1) / 2;
+            format!("mate -{}", mate_in)
+        } else {
+            // Regular centipawn score
+            format!("cp {}", score)
+        }
+    }
+
+    fn search_root(&mut self, board: &Board, depth: u8) -> i16 {
         let mut best_move = None;
         let mut best_score = -CHECKMATE_SCORE;
         let mut alpha = -CHECKMATE_SCORE;
@@ -249,7 +285,38 @@ impl ChessEngine {
             alpha = alpha.max(score);
         }
 
-        (best_move, best_score)
+        let hash = board.get_hash();
+        let tt_index = (hash as usize) % self.tt_size;
+        if let Some(best_move) = best_move {
+            let node_type = if best_score <= alpha {
+                2 // UpperBound
+            } else if best_score >= beta {
+                1 // LowerBound
+            } else {
+                0 // Exact
+            };
+
+            let should_replace = if let Some(ref existing) = self.transposition_table[tt_index] {
+                existing.key != (hash >> 32) as u32 || // Different position
+                existing.depth <= depth || // Deeper search
+                existing.age != self.tt_age // Older entry
+            } else {
+                true
+            };
+
+            if should_replace {
+                self.transposition_table[tt_index] = Some(TranspositionEntry {
+                    key: (hash >> 32) as u32,
+                    best_move: self.pack_move(best_move),
+                    depth,
+                    score: self.adjust_mate_score_for_storage(best_score, 0),
+                    node_type,
+                    age: self.tt_age,
+                });
+            }
+        }
+
+        best_score
     }
 
     fn negamax(&mut self, board: &Board, depth: u8, mut alpha: i16, beta: i16, ply: usize, do_null: bool) -> i16 {
@@ -292,7 +359,7 @@ impl ChessEngine {
 
         // Terminal node evaluation
         match board.status() {
-            BoardStatus::Checkmate => return -CHECKMATE_SCORE - ply as i16, // Prefer faster mates
+            BoardStatus::Checkmate => return -CHECKMATE_SCORE + ply as i16,
             BoardStatus::Stalemate => return 0,
             BoardStatus::Ongoing => {}
         }
@@ -635,9 +702,11 @@ impl ChessEngine {
     }
 
     fn adjust_mate_score(&self, score: i16, ply: usize) -> i16 {
-        if score > CHECKMATE_SCORE {
+        if score > CHECKMATE_SCORE - 1000 {
+            // Positive mate score - subtract ply to prefer shorter mates
             score - ply as i16
-        } else if score < -CHECKMATE_SCORE {
+        } else if score < -CHECKMATE_SCORE + 1000 {
+            // Negative mate score - add ply to prefer longer defensive sequences
             score + ply as i16
         } else {
             score
@@ -645,9 +714,11 @@ impl ChessEngine {
     }
 
     fn adjust_mate_score_for_storage(&self, score: i16, ply: usize) -> i16 {
-        if score > CHECKMATE_SCORE {
+        if score > CHECKMATE_SCORE - 1000 {
+            // When storing: add ply back to get the original mate distance
             score + ply as i16
-        } else if score < -CHECKMATE_SCORE {
+        } else if score < -CHECKMATE_SCORE + 1000 {
+            // When storing: subtract ply back for defensive mates
             score - ply as i16
         } else {
             score
@@ -687,32 +758,77 @@ fn uci_to_move(uci: &str) -> Result<ChessMove, String> {
 fn calculate_time_limit(
     wtime: Option<u64>,
     btime: Option<u64>,
+    winc: Option<u64>,
+    binc: Option<u64>,
     movestogo: Option<u64>,
     movetime: Option<u64>,
     side_to_move: Color,
 ) -> Option<Duration> {
     // Case 1: movetime override
     if let Some(ms) = movetime {
-        return Some(Duration::from_millis(ms));
+        return Some(Duration::from_millis(ms.saturating_sub(50))); // 50ms overhead
     }
 
-    // Time remaining for the current player
-    let time_left = match side_to_move {
-        Color::White => wtime?,
-        Color::Black => btime?,
+    // Get time and increment for current player
+    let (time_left, increment) = match side_to_move {
+        Color::White => (wtime?, winc.unwrap_or(0)),
+        Color::Black => (btime?, binc.unwrap_or(0)),
     };
 
-    // Parameters
-    let reserve_fraction = 0.1; // Leave 10% of time as reserve
-    let moves_remaining = movestogo.unwrap_or(40).max(1);
+    // Don't search if almost no time left
+    if time_left < 100 {
+        return Some(Duration::from_millis(10));
+    }
 
-    // Avoid spending all time in one move
-    let usable_time = (time_left as f64) * (1.0 - reserve_fraction);
+    let overhead = 50u64; // Network/GUI overhead
+    let usable_time = time_left.saturating_sub(overhead);
+    let emergency_reserve = usable_time / 20; // 5% emergency reserve
+    let available_time = usable_time.saturating_sub(emergency_reserve);
 
-    // More sophisticated time distribution: spend more time in earlier moves
-    let time_per_move = (usable_time / (moves_remaining as f64).sqrt()).min(time_left as f64 * 0.9);
+    let allocated_time = match movestogo {
+        // Tournament time control (e.g., 40/90+30)
+        Some(moves_left) => {
+            if moves_left == 0 {
+                (available_time as f64 * 0.02) as u64 + increment / 2
+            } else {
+                let base_per_move = available_time / moves_left;
+                let increment_bonus = (increment * 4) / 5; // Use 80% of increment
+                
+                // Don't use more than 1/3 of time in one move unless in severe time trouble
+                let max_time = if moves_left <= 5 {
+                    available_time / moves_left + increment / 2
+                } else {
+                    (available_time / 3).min(base_per_move * 3)
+                };
+                
+                (base_per_move + increment_bonus).min(max_time)
+            }
+        }
+        
+        // Sudden death or increment games
+        None => {
+            // Use smaller fraction of remaining time
+            let base_fraction = if available_time > 60000 { 0.03 } else { 0.02 }; // 3% or 2%
+            let base_time = (available_time as f64 * base_fraction) as u64;
+            let increment_bonus = (increment * 4) / 5; // Use 80% of increment
+            
+            // Maximum time limits to prevent spending too much early
+            let max_time = if available_time > 300000 { // > 5 minutes
+                available_time / 10 // Max 10% of time
+            } else if available_time > 60000 { // > 1 minute
+                available_time / 8  // Max 12.5% of time
+            } else {
+                available_time / 5  // Max 20% when low on time
+            };
+            
+            (base_time + increment_bonus).min(max_time)
+        }
+    };
 
-    Some(Duration::from_millis(time_per_move as u64))
+    // Ensure minimum search time but don't exceed what we have
+    let final_time = allocated_time.clamp(10, available_time);
+    
+    Some(Duration::from_millis(final_time))
 }
 
 fn main() {
@@ -809,9 +925,9 @@ fn main() {
             Ok((_, UCICommand::Bench)) => {
                 println!("Running benchmark...");
                 let mut benchmark_engine = ChessEngine::new();
-                // Stockfish gives this position an evaluation of +0.2
+                // Stockfish gives best move here as: d6d5
                 let benchmark_board = Board::from_str("r2q1rk1/2p1bppp/p1np1n2/1p2p3/3PP1b1/1BP1BN2/PP3PPP/RN1QR1K1 b - - 2 10").unwrap();
-                let (best_move, _) = benchmark_engine.search(&benchmark_board, 10, None);
+                let best_move = benchmark_engine.search(&benchmark_board, 10, None);
                 println!("Best move: {best_move}");
             }
             Ok((_, UCICommand::Position { fen, moves })) => {
@@ -842,6 +958,8 @@ fn main() {
                 UCICommand::Go {
                     wtime,
                     btime,
+                    winc,
+                    binc,
                     movestogo,
                     movetime,
                     depth,
@@ -850,10 +968,10 @@ fn main() {
             )) => {
                 let search_depth = depth.unwrap_or(10) as u8; // Increased default depth
                 let time_limit = calculate_time_limit(
-                    wtime, btime, movestogo, movetime, current_board.side_to_move()
+                    wtime, btime, winc, binc, movestogo, movetime, current_board.side_to_move()
                 );
 
-                let (best_move, _score) = engine.search(&current_board, search_depth, time_limit);
+                let best_move = engine.search(&current_board, search_depth, time_limit);
                 println!("bestmove {best_move}");
                 
                 // More aggressive transposition table cleanup

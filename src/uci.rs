@@ -20,6 +20,8 @@ pub enum UCICommand {
     Go {
         wtime: Option<u64>,
         btime: Option<u64>,
+        winc: Option<u64>,
+        binc: Option<u64>,
         movestogo: Option<u64>,
         movetime: Option<u64>,
         depth: Option<u64>,
@@ -53,6 +55,8 @@ pub fn parse_go(input: &str) -> IResult<&str, UCICommand> {
     // Create a vector to store parsed parameters directly
     let mut wtime = None;
     let mut btime = None;
+    let mut winc = None;
+    let mut binc = None;
     let mut movestogo = None;
     let mut movetime = None;
     let mut depth = None;
@@ -63,6 +67,8 @@ pub fn parse_go(input: &str) -> IResult<&str, UCICommand> {
         match key {
             "wtime" => wtime = Some(value as u64),
             "btime" => btime = Some(value as u64),
+            "winc" => winc = Some(value as u64),
+            "binc" => binc = Some(value as u64),
             "movestogo" => movestogo = Some(value as u64),
             "movetime" => movetime = Some(value as u64),
             "depth" => depth = Some(value as u64),
@@ -76,6 +82,8 @@ pub fn parse_go(input: &str) -> IResult<&str, UCICommand> {
         UCICommand::Go {
             wtime,
             btime,
+            winc,
+            binc,
             movestogo,
             movetime,
             depth,
