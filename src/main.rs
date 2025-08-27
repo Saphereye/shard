@@ -213,10 +213,9 @@ impl ChessEngine {
     }
 
     fn get_pv(&self, mut board: Board) -> Vec<ChessMove> {
-        let mut pv = Vec::new();
-        let max_ply = 8;
+        let mut pv = Vec::with_capacity(64);
 
-        for _ in 0..max_ply {
+        for _ in 0..64 {
             let hash = board.get_hash();
             let tt_index = (hash as usize) % self.tt_size;
 
@@ -481,7 +480,7 @@ impl ChessEngine {
         };
 
 
-        if ply > 5 {
+        if ply > 20 {
             return board_evaluation;
         }
 
@@ -925,7 +924,13 @@ fn main() {
             Ok((_, UCICommand::Bench)) => {
                 println!("Running benchmark...");
                 let mut benchmark_engine = ChessEngine::new();
-                // Stockfish gives best move here as: d6d5
+                // Engine: SF 17.1
+                // info depth 30 seldepth 43 multipv 1 score cp -14 pv e5d4 c3d4 c6a5 b3c2 a5c4 e3c1 c7c5 b2b3 c4b6 b1d2 g4h5 h2h3 c5d4 g2g4 d4d3 c2d3 h5g6 f3d4 d6d5 d4c6 d8c7 c6e7 c7e7 e4d5 e7c5 d2f3 c5c3 c1e3 f6d5 d3f1 d5e3 e1e3 c3c7 a1c1 a8d8 d1e1
+                // info depth 30 seldepth 48 multipv 2 score cp -17 pv d6d5 e4d5 e5d4 e3d4 c6d4 c3d4 e7b4 b1c3 f8e8 e1e8 d8e8 h2h3 g4f3 d1f3 b4d6 a2a4 a8b8 a4b5 a6b5 g2g3 e8e7 f3d3 e7d7 g1g2 g7g6 a1a6 b5b4 c3d1 h7h5
+                // info depth 30 seldepth 39 multipv 3 score cp -22 pv g4h5 b1d2 d6d5 e3g5 e5d4 e4d5 d4c3 d5c6 c3d2 d1d2 h5f3 d2d8 a8d8 e1e7 f3c6 e7c7 c6d5 h2h3 d5b3 a2b3 d8d6 c7a7 h7h6 g5f4 d6d3 a1a6 d3b3 f4e5 f6e4 f2f3 e4g5
+                // info depth 30 seldepth 42 multipv 4 score cp -26 pv c6a5 d4e5 g4f3 d1f3 d6e5 b1d2 a5b3 a2b3 d8c8 e3g5 h7h6 g5f6 e7f6 f3f5 c8e8 b3b4 e8c6 d2f1 g7g6 f5f3 g8g7 f1e3 f8d8 e1d1 h6h5 d1d8 a8d8 e3d5 f6g5 g2g3
+                // info depth 30 seldepth 46 multipv 5 score cp -30 pv a6a5 d4d5 a5a4 b3c2 c6a5 h2h3 g4d7 b2b3 c7c6 f3e5 d6e5 d5d6 h7h6 d6e7 d8e7 b1d2 a4b3 a2b3 c6c5 d1b1 a5c6 a1a8 f8a8 c2d3 b5b4 c3b4 c5b4 b1b2 d7e6 e1c1 e7d7 d3e2
+                // bestmove e5d4 ponder c3d4
                 let benchmark_board = Board::from_str("r2q1rk1/2p1bppp/p1np1n2/1p2p3/3PP1b1/1BP1BN2/PP3PPP/RN1QR1K1 b - - 2 10").unwrap();
                 let best_move = benchmark_engine.search(&benchmark_board, 10, None);
                 println!("Best move: {best_move}");
