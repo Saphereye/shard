@@ -1,6 +1,6 @@
 # Shard Chess Engine
 **Shard** is a fast and hackable chess engine written in Rust.  
-It supports the UCI (Universal Chess Interface) protocol and uses a Negamax search with alpha–beta pruning, powered by a custom evaluation function.
+It supports the UCI (Universal Chess Interface) protocol and uses a Negamax search with alpha–beta pruning and is powered by an NNUE.
 
 ## Example Game
 Here’s a sample game between me and Shard (result: 0–1).
@@ -42,6 +42,9 @@ cargo build --release
 ```
 
 This executable can be registered in a chess gui (e.g. cutechess) to play against.
+
+## NNUE
+Shard uses the same NNUE as stockfish, albeit the HalfKP models, which came during/before 2022. Currently its using the latest one `nn-62ef826d1a6d.nnue`. These nnue models can be downloaded from fishtest.
 
 ## License
 

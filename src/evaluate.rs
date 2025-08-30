@@ -1,3 +1,4 @@
+#![allow(static_mut_refs)]
 use chess::Board;
 use std::io::Cursor;
 use timecat::nnue::HalfKPModel;
@@ -14,7 +15,7 @@ pub fn evaluate_board(board: &Board) -> i16 {
     let position = ChessPosition::from_fen(&board.to_string()).unwrap();
     unsafe {
         INIT.call_once(|| {
-            let data = std::fs::read("/home/adarsh/Downloads/nn-62ef826d1a6d.nnue").unwrap();
+            let data = include_bytes!("../assets/nn-62ef826d1a6d.nnue");
             let mut cursor = Cursor::new(data);
             let reader = HalfKPModelReader::read(&mut cursor).unwrap();
             MODEL = Some(reader.to_default_model());

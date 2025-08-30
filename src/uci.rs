@@ -245,6 +245,8 @@ mod tests {
         let expected = UCICommand::Go {
             wtime: None,
             btime: None,
+            winc: None,
+            binc: None,
             movestogo: None,
             movetime: None,
             depth: Some(5),

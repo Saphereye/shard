@@ -124,23 +124,12 @@ impl HistoryTable {
 }
 
 // Position history for repetition detection
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct PositionHistory {
     positions: HashMap<u64, u8>, // hash -> count
     history: Vec<u64>, // Stack of position hashes for easy rollback
     move_count: u16, // Track moves for 50-move rule
     last_capture_or_pawn: u16, // Last move where capture or pawn move occurred
-}
-
-impl Default for PositionHistory {
-    fn default() -> Self {
-        Self {
-            positions: HashMap::new(),
-            history: Vec::new(),
-            move_count: 0,
-            last_capture_or_pawn: 0,
-        }
-    }
 }
 
 impl PositionHistory {
