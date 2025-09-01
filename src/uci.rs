@@ -113,7 +113,7 @@ pub fn parse_bench(input: &str) -> IResult<&str, UCICommand> {
 }
 
 pub fn parse_display(input: &str) -> IResult<&str, UCICommand> {
-    let (input, _) = tag("display")(input)?;
+    let (input, _) = tag("d")(input)?;
     Ok((input, UCICommand::Display))
 }
 

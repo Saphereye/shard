@@ -170,7 +170,7 @@ impl PositionHistory {
     }
     
     fn is_fifty_move_rule(&self) -> bool {
-        self.move_count.saturating_sub(self.last_capture_or_pawn) >= 100
+        self.move_count.saturating_sub(self.last_capture_or_pawn) >= 49
     }
     
     fn clear(&mut self) {
@@ -187,7 +187,6 @@ struct SearchStats {
     transposition_hits: u64,
     beta_cutoffs: u64,
     null_move_cutoffs: u64,
-    repetition_draws: u64,
 }
 
 pub struct ChessEngine {
@@ -269,7 +268,7 @@ impl ChessEngine {
                 break;
             }
 
-            let score = self.search_root(board, current_depth);
+            let score = self.search_root(board, current_depth, self.start_time, self.time_limit);
 
             pv = self.get_pv(*board);
             let pv_str = pv.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(" "); 
@@ -304,6 +303,7 @@ impl ChessEngine {
 
         // Check for 50-move rule
         if self.position_history.is_fifty_move_rule() {
+            dbg!("50 move rule hit");
             return true;
         }
 
@@ -370,23 +370,33 @@ impl ChessEngine {
 
     fn get_pv(&self, mut board: Board) -> Vec<ChessMove> {
         let mut pv = Vec::with_capacity(64);
+        let mut position_count = std::collections::HashMap::new();
+
+        // Count the initial position
+        *position_count.entry(board.get_hash()).or_insert(0) += 1;
 
         for _ in 0..64 {
             let hash = board.get_hash();
             let tt_index = (hash as usize) % self.tt_size;
-
             if let Some(ref entry) = self.transposition_table[tt_index] {
                 if entry.key == (hash >> 32) as u32 {
                     if let Some(mv) = self.unpack_move(entry.best_move) {
                         pv.push(mv);
                         board = board.make_move_new(mv);
+
+                        // Check for threefold repetition
+                        let new_hash = board.get_hash();
+                        *position_count.entry(new_hash).or_insert(0) += 1;
+                        if position_count[&new_hash] >= 3 {
+                            break; // Stop PV if threefold repetition detected
+                        }
+
                         continue; // keep following
                     }
                 }
             }
             break; // stop if no continuation found
         }
-
         pv
     }
 
@@ -407,20 +417,23 @@ impl ChessEngine {
         }
     }
 
-    fn search_root(&mut self, board: &Board, depth: u8) -> i16 {
+    fn search_root(&mut self, board: &Board, depth: u8, start_time: Option<Instant>, time_limit: Option<Duration>) -> i16 {
         let mut best_move = None;
         let mut best_score = -CHECKMATE_SCORE;
         let mut alpha = -CHECKMATE_SCORE;
         let beta = CHECKMATE_SCORE;
 
-        // Check for immediate draw
-        if self.is_draw(board) {
-            return DRAW_SCORE;
-        }
-
-        let moves = self.order_moves(board, None, 0);
+        let moves = self.order_moves(board);
         
         for (i, chess_move) in moves.iter().enumerate() {
+            if let Some(time_limit) = time_limit {
+                if let Some(start) = self.start_time {
+                    if start.elapsed() >= time_limit {
+                        break;
+                    }
+                }
+            }
+
             let new_board = board.make_move_new(*chess_move);
             let is_capture_or_pawn = board.piece_on(chess_move.get_dest()).is_some() || 
                                      board.piece_on(chess_move.get_source()) == Some(Piece::Pawn);
@@ -489,22 +502,16 @@ impl ChessEngine {
         self.stats.nodes_searched += 1;
         self.nodes_since_check += 1;
 
-        // Check for draw conditions first
-        if self.is_draw(board) {
-            self.stats.repetition_draws += 1;
-            return DRAW_SCORE;
-        }
-
         // Check transposition table
         let hash = board.get_hash();
         let tt_index = (hash as usize) % self.tt_size;
-        let hash_move = if let Some(ref entry) = self.transposition_table[tt_index] {
+        if let Some(ref entry) = self.transposition_table[tt_index] {
             if entry.key == (hash >> 32) as u32 && entry.depth >= depth {
                 self.stats.transposition_hits += 1;
                 let score = self.adjust_mate_score(entry.score, ply);
 
                 // Don't return draw scores from TT if we haven't checked for repetition
-                if score != DRAW_SCORE || self.is_draw(board) {
+                if self.is_draw(board) {
                     match entry.node_type() {
                         NodeType::Exact => return score,
                         NodeType::LowerBound => {
@@ -539,6 +546,11 @@ impl ChessEngine {
             BoardStatus::Ongoing => {}
         }
 
+        // Check for draw conditions first
+        if self.is_draw(board) {
+            return DRAW_SCORE;
+        }
+
         // Leaf node evaluation
         if depth == 0 {
             return self.quiescence_search(board, alpha, beta, ply);
@@ -564,7 +576,7 @@ impl ChessEngine {
         let mut best_score = -CHECKMATE_SCORE;
         let mut move_count = 0;
 
-        let moves = self.order_moves(board, hash_move, ply);
+        let moves = self.order_moves(board);
 
         for chess_move in moves {
             move_count += 1;
@@ -576,7 +588,7 @@ impl ChessEngine {
             let mut score;
 
             // Late move reductions
-            if move_count > 4 && depth >= 3 && 
+            if move_count > 4 && depth >= 5 && 
                board.piece_on(chess_move.get_dest()).is_none() && // Not a capture
                chess_move.get_promotion().is_none() && // Not a promotion
                new_board.checkers().popcnt() == 0 { // Doesn't give check
@@ -660,12 +672,11 @@ impl ChessEngine {
     fn quiescence_search(&mut self, board: &Board, mut alpha: i16, beta: i16, ply: usize) -> i16 {
         self.stats.nodes_searched += 1;
         
-        // Check for draw in quiescence as well
-        if self.is_draw(board) {
-            return DRAW_SCORE;
-        }
-        
         let mut board_evaluation = evaluate_board(board);
+        if self.is_draw(board) {
+            board_evaluation = DRAW_SCORE;
+        }
+
         board_evaluation *= match board.side_to_move() {
             Color::White => 1,
             Color::Black => -1
@@ -721,59 +732,13 @@ impl ChessEngine {
         alpha
     }
 
-    fn order_moves(&self, board: &Board, hash_move: Option<ChessMove>, ply: usize) -> Vec<ChessMove> {
+    fn order_moves(&self, board: &Board) -> Vec<ChessMove> {
         let moves: Vec<ChessMove> = MoveGen::new_legal(board).collect();
-
-        // Pre-compute values that don't change per move
-        let side_to_move = board.side_to_move();
 
         // Score all moves first (avoiding repeated computations in sort)
         let mut scored_moves: Vec<(ChessMove, i16)> = moves.into_iter().map(|mv| {
-            let mut score = 0;
-            
-            // Hash move gets highest priority
-            if Some(mv) == hash_move {
-                return (mv, -10000);
-            }
-            
-            // Penalize moves that lead to repetition
-            if self.leads_to_repetition(board, mv) {
-                score += 3000; // Positive score = lower priority
-            }
-            
-            let dest = mv.get_dest();
-            // Captures with SEE
-            if let Some(captured_piece) = board.piece_on(dest) {
-                let see_score = self.see(board, mv);
-                if see_score >= 0 {
-                    let victim_value = self.piece_value(captured_piece);
-                    score -= 8000 + victim_value;
-                } else {
-                    score -= see_score; // Bad captures get negative score
-                }
-            }
-            // Promotions
-            if let Some(promotion) = mv.get_promotion() {
-                score -= 7000 + self.piece_value(promotion);
-            }
-
-            // Killer moves (check this before history for better cache locality)
-            if self.killer_moves.is_killer(ply, mv) {
-                score -= 5000;
-            }
-
-            // History heuristic (pre-divided to avoid division in sort)
-            score -= self.history_table.get_history(side_to_move, mv) / 10;
-
-            // Checks (most expensive, do last and only for non-captures/promotions)
-            if score > -7000 { // Skip if already high-priority move
-                let new_board = board.make_move_new(mv);
-                if new_board.checkers().popcnt() > 0 {
-                    score -= 100;
-                }
-            }
-
-            (mv, score)
+            let new_board = board.make_move_new(mv);
+            (mv, evaluate_board(&new_board))
         }).collect();
 
         // Efficient insertion sort optimized for small arrays and cache locality
@@ -1137,7 +1102,7 @@ fn main() {
                 // bestmove e5d4 ponder c3d4
                 let benchmark_board = Board::from_str("r2q1rk1/2p1bppp/p1np1n2/1p2p3/3PP1b1/1BP1BN2/PP3PPP/RN1QR1K1 b - - 2 10").unwrap();
                 benchmark_engine.set_position(&benchmark_board);
-                let best_move = benchmark_engine.search(&benchmark_board, 10, None);
+                let best_move = benchmark_engine.search(&benchmark_board, 10, Some(Duration::from_secs(1)));
                 println!("Best move: {best_move}");
             }
             Ok((_, UCICommand::Position { fen, moves })) => {
@@ -1180,7 +1145,7 @@ fn main() {
                     nodes: _,
                 },
             )) => {
-                let search_depth = depth.unwrap_or(11) as u8;
+                let search_depth = depth.unwrap_or(5) as u8;
                 let time_limit = calculate_time_limit(
                     wtime, btime, winc, binc, movestogo, movetime, current_board.side_to_move()
                 );
