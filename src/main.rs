@@ -559,6 +559,13 @@ impl ChessEngine {
             }
         }
 
+        // Get current position NNUE evaluation for futility pruning and extensions
+        let current_eval = evaluate_board(board);
+        let adjusted_current_eval = match board.side_to_move() {
+            Color::White => current_eval,
+            Color::Black => -current_eval,
+        };
+
         let original_alpha = alpha;
         let mut best_move = None;
         let mut best_score = -CHECKMATE_SCORE;
@@ -573,32 +580,70 @@ impl ChessEngine {
                                      board.piece_on(chess_move.get_source()) == Some(Piece::Pawn);
             self.position_history.push_position(new_board.get_hash(), is_capture_or_pawn);
             
+            // Calculate NNUE evaluation improvement for this move
+            let new_eval = evaluate_board(&new_board);
+            let adjusted_new_eval = match board.side_to_move() {
+                Color::White => -new_eval,  // Opposite because it's opponent's perspective
+                Color::Black => new_eval,
+            };
+            let eval_improvement = adjusted_new_eval - adjusted_current_eval;
+            
             let mut score;
+            let mut extension = 0;
 
-            // Late move reductions
+            // Selective search extension: extend moves that NNUE rates highly
+            // This makes the engine search promising moves deeper
+            if depth >= 2 && eval_improvement > 100 && new_board.checkers().popcnt() == 0 {
+                extension = 1;
+            } else if new_board.checkers().popcnt() > 0 {
+                // Also extend checks
+                extension = 1;
+            }
+
+            // Futility pruning: skip moves that look hopeless according to NNUE
+            // Only in non-PV nodes and late in the move list
+            if move_count > 3 && depth <= 3 && 
+               board.piece_on(chess_move.get_dest()).is_none() && // Not a capture
+               chess_move.get_promotion().is_none() && // Not a promotion
+               new_board.checkers().popcnt() == 0 && // Doesn't give check
+               eval_improvement < -150 && // NNUE thinks this move is significantly worse
+               alpha > -CHECKMATE_SCORE + 1000 { // Not in a mating situation
+                
+                self.position_history.pop_position();
+                continue; // Skip this move
+            }
+
+            // Late move reductions - but reduce less for NNUE-preferred moves
             if move_count > 4 && depth >= 3 && 
                board.piece_on(chess_move.get_dest()).is_none() && // Not a capture
                chess_move.get_promotion().is_none() && // Not a promotion
                new_board.checkers().popcnt() == 0 { // Doesn't give check
 
-                // Reduce depth for late moves
-                let reduction = if move_count > 8 { 2 } else { 1 };
+                // Reduce depth for late moves, but reduce less if NNUE likes the move
+                let reduction = if eval_improvement > 50 {
+                    1  // Smaller reduction for promising moves
+                } else if move_count > 8 {
+                    2
+                } else {
+                    1
+                };
+                
                 score = -self.negamax(&new_board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, true);
 
                 // If reduced search fails high, re-search with full depth
                 if score > alpha {
-                    score = -self.negamax(&new_board, depth - 1, -alpha - 1, -alpha, ply + 1, true);
+                    score = -self.negamax(&new_board, depth - 1 + extension, -alpha - 1, -alpha, ply + 1, true);
                 }
             } else if move_count == 1 {
                 // First move: full window search
-                score = -self.negamax(&new_board, depth - 1, -beta, -alpha, ply + 1, true);
+                score = -self.negamax(&new_board, depth - 1 + extension, -beta, -alpha, ply + 1, true);
             } else {
                 // Principal Variation Search
-                score = -self.negamax(&new_board, depth - 1, -alpha - 1, -alpha, ply + 1, true);
+                score = -self.negamax(&new_board, depth - 1 + extension, -alpha - 1, -alpha, ply + 1, true);
 
                 // If PVS search fails high, re-search with full window
                 if score > alpha && score < beta {
-                    score = -self.negamax(&new_board, depth - 1, -beta, -alpha, ply + 1, true);
+                    score = -self.negamax(&new_board, depth - 1 + extension, -beta, -alpha, ply + 1, true);
                 }
             }
 
@@ -765,11 +810,27 @@ impl ChessEngine {
             // History heuristic (pre-divided to avoid division in sort)
             score -= self.history_table.get_history(side_to_move, mv) / 10;
 
-            // Checks (most expensive, do last and only for non-captures/promotions)
-            if score > -7000 { // Skip if already high-priority move
+            // NNUE-guided move ordering for non-tactical moves
+            // This helps prioritize positionally strong moves that NNUE evaluates highly
+            if score > -7000 { // Only for non-captures/promotions (more expensive)
                 let new_board = board.make_move_new(mv);
+                
+                // Check for check
                 if new_board.checkers().popcnt() > 0 {
                     score -= 100;
+                }
+                
+                // NNUE evaluation for move ordering (for quiet moves and in deeper searches)
+                // Only evaluate if not already high priority and we're past ply 0
+                if ply > 0 && score > -5000 {
+                    let nnue_eval = evaluate_board(&new_board);
+                    let adjusted_eval = if side_to_move == Color::White {
+                        nnue_eval
+                    } else {
+                        -nnue_eval
+                    };
+                    // Weight NNUE evaluation in move ordering (scaled down to not dominate)
+                    score -= adjusted_eval / 20;
                 }
             }
 
