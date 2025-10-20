@@ -5,7 +5,9 @@ use std::{
 };
 
 mod evaluate;
-use evaluate::evaluate_board;
+use evaluate::{evaluate_board, evaluate_with_confidence};
+
+mod nnue;
 
 mod uci;
 use uci::*;
@@ -561,7 +563,8 @@ impl ChessEngine {
 
         // Get current position NNUE evaluation for futility pruning and extensions
         // This allows the engine to make informed decisions about which moves to search deeper
-        let current_eval = evaluate_board(board);
+        // Now uses confidence to be more skeptical in uncertain positions
+        let (current_eval, current_confidence) = evaluate_with_confidence(board);
         let adjusted_current_eval = match board.side_to_move() {
             Color::White => current_eval,
             Color::Black => -current_eval,
@@ -583,12 +586,16 @@ impl ChessEngine {
             
             // Calculate NNUE evaluation improvement for this move
             // This tells us how much better/worse the position becomes from NNUE's perspective
-            let new_eval = evaluate_board(&new_board);
+            // Now uses confidence - be more skeptical when confidence is low
+            let (new_eval, new_confidence) = evaluate_with_confidence(&new_board);
             let adjusted_new_eval = match board.side_to_move() {
                 Color::White => -new_eval,  // Opposite because it's opponent's perspective
                 Color::Black => new_eval,
             };
             let eval_improvement = adjusted_new_eval - adjusted_current_eval;
+            
+            // Average confidence for decision making
+            let avg_confidence = (current_confidence + new_confidence) / 2.0;
             
             let mut score;
             let mut extension = 0;
@@ -596,7 +603,8 @@ impl ChessEngine {
             // Selective search extension: extend moves that NNUE rates highly
             // This makes the engine search promising moves deeper, which is crucial for finding
             // the best continuation when NNUE identifies a strong tactical or positional opportunity
-            if depth >= 2 && eval_improvement > 100 && new_board.checkers().popcnt() == 0 {
+            // Only extend if confidence is reasonably high (>0.7) - be skeptical in uncertain positions
+            if depth >= 2 && eval_improvement > 100 && avg_confidence > 0.7 && new_board.checkers().popcnt() == 0 {
                 extension = 1;
             } else if new_board.checkers().popcnt() > 0 {
                 // Also extend checks as they're tactically important
@@ -606,11 +614,20 @@ impl ChessEngine {
             // Futility pruning: skip moves that look hopeless according to NNUE
             // Only in non-PV nodes and late in the move list
             // This saves time by not searching moves that NNUE evaluates as significantly worse
+            // Be more aggressive with pruning when confidence is high, more cautious when low
+            let futility_threshold = if avg_confidence > 0.8 {
+                -150  // Aggressive pruning with high confidence
+            } else if avg_confidence > 0.6 {
+                -200  // Moderate pruning with medium confidence
+            } else {
+                -300  // Conservative pruning with low confidence (more skeptical)
+            };
+            
             if move_count > 3 && depth <= 3 && 
                board.piece_on(chess_move.get_dest()).is_none() && // Not a capture
                chess_move.get_promotion().is_none() && // Not a promotion
                new_board.checkers().popcnt() == 0 && // Doesn't give check
-               eval_improvement < -150 && // NNUE thinks this move is significantly worse
+               eval_improvement < futility_threshold && // NNUE thinks this move is significantly worse
                alpha > -CHECKMATE_SCORE + 1000 { // Not in a mating situation
                 
                 self.position_history.pop_position();
@@ -619,6 +636,7 @@ impl ChessEngine {
 
             // Late move reductions - but reduce less for NNUE-preferred moves
             // This ensures promising moves identified by NNUE get adequate search depth
+            // Adjust thresholds based on confidence - be more skeptical with low confidence
             if move_count > 4 && depth >= 3 && 
                board.piece_on(chess_move.get_dest()).is_none() && // Not a capture
                chess_move.get_promotion().is_none() && // Not a promotion
@@ -626,7 +644,14 @@ impl ChessEngine {
 
                 // Reduce depth for late moves, but reduce less if NNUE likes the move
                 // This is a key improvement: NNUE-preferred moves maintain deeper search
-                let reduction = if eval_improvement > 50 {
+                // Adjust threshold based on confidence
+                let improvement_threshold = if avg_confidence > 0.75 {
+                    50  // Trust NNUE more with high confidence
+                } else {
+                    100  // Require larger improvement with lower confidence
+                };
+                
+                let reduction = if eval_improvement > improvement_threshold {
                     1  // Smaller reduction for promising moves
                 } else if move_count > 8 {
                     2
@@ -819,6 +844,7 @@ impl ChessEngine {
             // NNUE-guided move ordering for non-tactical moves
             // This helps prioritize positionally strong moves that NNUE evaluates highly
             // Applied selectively to balance accuracy with performance
+            // Now uses confidence to be more skeptical in uncertain positions
             if score > -7000 { // Only for non-captures/promotions (more expensive)
                 let new_board = board.make_move_new(mv);
                 
@@ -831,15 +857,17 @@ impl ChessEngine {
                 // Only evaluate if not already high priority and we're past ply 0
                 // This makes the engine trust NNUE's positional understanding
                 if ply > 0 && score > -5000 {
-                    let nnue_eval = evaluate_board(&new_board);
+                    let (nnue_eval, confidence) = evaluate_with_confidence(&new_board);
                     let adjusted_eval = if side_to_move == Color::White {
                         nnue_eval
                     } else {
                         -nnue_eval
                     };
-                    // Weight NNUE evaluation in move ordering (scaled down to not dominate)
-                    // Dividing by 20 means a 200cp difference influences ordering by ~10 points
-                    score -= adjusted_eval / 20;
+                    // Weight NNUE evaluation in move ordering, adjusted by confidence
+                    // Lower confidence = less influence on move ordering
+                    // Base weight is /20, but scaled by confidence (0.6-1.0 typically)
+                    let weight = (adjusted_eval as f32 * confidence / 20.0) as i16;
+                    score -= weight;
                 }
             }
 

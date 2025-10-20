@@ -44,14 +44,29 @@ cargo build --release
 This executable can be registered in a chess gui (e.g. cutechess) to play against.
 
 ## NNUE
-Shard uses the same NNUE as stockfish, albeit the HalfKP models, which came during/before 2022. Currently its using the latest one `nn-62ef826d1a6d.nnue`. These nnue models can be downloaded from fishtest.
+Shard now supports modern Stockfish NNUE architectures with a custom implementation. The engine uses:
+- **HalfKAv2 Architecture**: Modern efficient architecture compatible with latest Stockfish networks
+- **Classical Fallback**: Automatic fallback to classical evaluation if NNUE file is unavailable
+- **Confidence-Based Evaluation**: NNUE evaluations are adjusted based on position characteristics
+
+### Loading NNUE Files
+Place NNUE files in the `assets/` directory:
+- `nn-latest.nnue` - Latest Stockfish NNUE (recommended)
+- `nn-62ef826d1a6d.nnue` - Legacy format (fallback)
+
+The engine will automatically use the available NNUE file or fall back to classical evaluation.
 
 ### NNUE-Guided Search
-Shard integrates NNUE evaluations throughout the search process to identify and explore promising moves more deeply:
-- **NNUE-guided move ordering**: Prioritizes moves that NNUE evaluates favorably
-- **Selective extensions**: Searches NNUE-preferred moves deeper
-- **Futility pruning**: Skips moves that NNUE evaluates as significantly worse
-- **Adaptive reductions**: Reduces search depth less for promising moves
+Shard integrates NNUE evaluations throughout the search process with confidence adjustment:
+- **Confidence-Based Move Ordering**: NNUE influence scaled by position confidence
+- **Skeptical Extensions**: Only extend when confidence is high (>0.7)
+- **Adaptive Pruning**: More aggressive pruning with high confidence, conservative with low
+- **Dynamic LMR**: Reduction thresholds adjusted based on evaluation confidence
+
+The engine is more skeptical of NNUE in:
+- Opening positions (early game)
+- Tactical positions (extreme evaluations)
+- Sparse positions (endgames with few pieces)
 
 See [NNUE_IMPROVEMENTS.md](NNUE_IMPROVEMENTS.md) for detailed documentation of these enhancements.
 
