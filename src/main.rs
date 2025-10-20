@@ -1005,6 +1005,13 @@ impl ChessEngine {
     }
 }
 
+// Note: Integration tests for NNUE-guided search features would require a valid NNUE file.
+// The following features have been implemented and should be tested with a proper NNUE:
+// - NNUE-guided move ordering in order_moves()
+// - Selective search extensions based on NNUE evaluation improvements
+// - Futility pruning using NNUE to identify weak moves
+// - Adaptive late move reductions based on NNUE assessments
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 const NAME: &str = env!("CARGO_PKG_NAME");
