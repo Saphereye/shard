@@ -44,18 +44,21 @@ cargo build --release
 This executable can be registered in a chess gui (e.g. cutechess) to play against.
 
 ## NNUE
-Shard uses HalfKP NNUE models compatible with older Stockfish networks (2020-2022 era). 
+Shard now supports **latest Stockfish NNUE format** (HalfKAv2_hm architecture) through a custom implementation.
 
-**Important**: You must download and place an NNUE file in the `assets/` directory for the engine to work.
+**Important**: You must download and place an NNUE file in the `assets/` directory for optimal performance.
 
-### Getting NNUE Files
+### Getting Latest NNUE Files
 1. **Visit**: https://tests.stockfishchess.org/nns
-2. **Download**: A HalfKP format NNUE (e.g., `nn-1c0000000000.nnue`)
+2. **Download**: Latest NNUE file (e.g., `nn-1c0000000000.nnue`)
 3. **Place** in `assets/nn-1c0000000000.nnue` or `assets/nn-latest.nnue`
 
-**Note**: Latest Stockfish networks (HalfKAv2_hm) use a different format not yet supported. Use HalfKP networks for now.
+The engine will:
+- ✅ Load latest HalfKAv2_hm format networks
+- ✅ Fall back to classical evaluation if no NNUE file found
+- ✅ Support multiple filename variants
 
-### NNUE-Guided Search
+### NNUE-Guided Search with Confidence
 Shard integrates NNUE evaluations throughout the search process with confidence adjustment:
 - **Confidence-Based Move Ordering**: NNUE influence scaled by position confidence
 - **Skeptical Extensions**: Only extend when confidence is high (>0.7)

@@ -7,6 +7,8 @@ use std::{
 mod evaluate;
 use evaluate::{evaluate_board, evaluate_with_confidence};
 
+mod nnue;
+
 mod uci;
 use uci::*;
 

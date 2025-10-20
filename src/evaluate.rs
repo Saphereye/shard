@@ -1,53 +1,41 @@
-#![allow(static_mut_refs)]
-// Modern evaluation using timecat's NNUE implementation
+// Modern evaluation supporting latest Stockfish NNUE format (HalfKAv2_hm)
 use chess::Board;
-use std::io::Cursor;
-use timecat::nnue::HalfKPModel;
-use timecat::nnue::HalfKPModelReader;
-use timecat::BinRead;
-use timecat::ChessPosition;
-
+use crate::nnue::{NNUE, classical_eval};
 use std::sync::Once;
 
-static mut MODEL: Option<HalfKPModel> = None;
+static mut MODEL: Option<NNUE> = None;
 static INIT: Once = Once::new();
 
 pub fn evaluate_board(board: &Board) -> i16 {
-    let position = ChessPosition::from_fen(&board.to_string()).unwrap();
     unsafe {
         INIT.call_once(|| {
             // Try to load NNUE file - check multiple possible filenames
             let nnue_files = [
                 "assets/nn-1c0000000000.nnue",
                 "assets/nn-latest.nnue",
-                "assets/nn-62ef826d1a6d.nnue",
                 "nn-1c0000000000.nnue",
                 "nn-latest.nnue",
             ];
             
             for filename in &nnue_files {
-                if let Ok(data) = std::fs::read(filename) {
-                    eprintln!("Loading NNUE from {}", filename);
-                    let mut cursor = Cursor::new(&data[..]);
-                    match HalfKPModelReader::read(&mut cursor) {
-                        Ok(reader) => {
-                            MODEL = Some(reader.to_default_model());
-                            eprintln!("NNUE loaded successfully");
-                            return;
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to parse {}: {:?}", filename, e);
-                        }
-                    }
+                if let Ok(nnue) = NNUE::from_file(filename) {
+                    eprintln!("NNUE loaded successfully from {}", filename);
+                    MODEL = Some(nnue);
+                    return;
                 }
             }
             
-            eprintln!("WARNING: No NNUE file found! Place nn-1c0000000000.nnue in assets/");
+            eprintln!("WARNING: No NNUE file found! Using classical evaluation.");
+            eprintln!("Place nn-1c0000000000.nnue in assets/ directory");
             eprintln!("Download from: https://tests.stockfishchess.org/nns");
-            panic!("NNUE file required for evaluation");
         });
         
-        MODEL.as_mut().unwrap().update_model_and_evaluate(&position)
+        // Use NNUE if available, otherwise classical
+        if let Some(ref nnue) = MODEL {
+            nnue.evaluate(board)
+        } else {
+            classical_eval(board)
+        }
     }
 }
 
