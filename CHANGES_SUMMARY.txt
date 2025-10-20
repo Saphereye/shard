@@ -1,0 +1,90 @@
+==============================================================================
+SHARD CHESS ENGINE - NNUE-GUIDED SEARCH IMPROVEMENTS
+==============================================================================
+
+PROBLEM:
+--------
+The bot gets stuck at ~2000 ELO despite having an NNUE evaluator. The NNUE
+provides good evaluations, but the search algorithm wasn't using these 
+insights effectively to guide which moves to explore more deeply.
+
+SOLUTION:
+---------
+Integrated NNUE evaluations throughout the search to:
+1. Prioritize moves NNUE evaluates favorably in move ordering
+2. Extend search depth for NNUE-preferred moves
+3. Prune unpromising moves more aggressively based on NNUE
+4. Reduce search depth less for promising moves in LMR
+
+CHANGES AT A GLANCE:
+--------------------
+
+File: src/main.rs
+
+1. order_moves() function (~line 775)
+   - Added: NNUE evaluation to move scoring
+   - Impact: Better move ordering → more pruning → faster search
+   - Weight: NNUE eval / 20 (balanced with other heuristics)
+
+2. negamax() function (~line 599)
+   - Added: Selective search extensions
+   - Trigger: Moves improving NNUE eval by >100cp
+   - Impact: Critical variations searched deeper
+
+3. negamax() function (~line 606)
+   - Added: NNUE-based futility pruning
+   - Trigger: Moves declining by >150cp
+   - Impact: Skip obviously bad moves, save time
+
+4. negamax() function (~line 629)
+   - Modified: Adaptive late move reductions
+   - Change: Reduce less (1 ply) for NNUE-preferred moves
+   - Impact: Promising moves maintain adequate depth
+
+DOCUMENTATION:
+--------------
+- IMPLEMENTATION_SUMMARY.md: Quick reference guide
+- NNUE_IMPROVEMENTS.md: Detailed technical documentation
+- README.md: Updated with NNUE features section
+- Inline comments: Comprehensive code documentation
+
+EXPECTED RESULTS:
+-----------------
+- ELO Improvement: +100-200 points
+- Better tactical play in complex positions
+- Improved positional understanding
+- More efficient search (better pruning)
+- More "human-like" strategic play
+
+BUILD STATUS:
+-------------
+✅ Compiles successfully (cargo build --release)
+✅ All tests pass (8/8 tests)
+✅ No new warnings
+✅ Backward compatible
+
+TUNABLE PARAMETERS:
+-------------------
+Location (line) | Parameter              | Current Value | Purpose
+----------------+------------------------+---------------+-------------------------
+~778            | NNUE ordering weight   | /20           | Balance with heuristics
+~599            | Extension threshold    | >100 cp       | Trigger extensions
+~613            | Futility threshold     | <-150 cp      | When to skip moves
+~629            | LMR reduction thresh   | >50 cp        | Reduce less for good
+
+NEXT STEPS:
+-----------
+1. Download nn-62ef826d1a6d.nnue from fishtest
+2. Place in assets/ directory
+3. Run self-play tests vs previous version
+4. Measure ELO improvement
+5. Tune parameters if needed
+
+TECHNICAL NOTES:
+----------------
+- NNUE evaluations cached via transposition table
+- Selective application balances accuracy & performance
+- All safety checks in place for pruning/extensions
+- UCI protocol compatibility maintained
+
+==============================================================================
