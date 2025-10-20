@@ -250,7 +250,7 @@ impl ChessEngine {
         self.position_history.pop_position();
     }
 
-    pub fn search(&mut self, board: &Board, depth: u8, time_limit: Option<Duration>) -> ChessMove {
+    pub fn search(&mut self, board: &Board, depth: u8, time_limit: Option<Duration>) -> (ChessMove, Option<ChessMove>) {
         self.stats = SearchStats::default();
         self.start_time = Some(Instant::now());
         self.time_limit = time_limit;
@@ -295,7 +295,9 @@ impl ChessEngine {
             }
         }
 
-        pv[0]
+        let best_move = pv[0];
+        let ponder_move = if pv.len() > 1 { Some(pv[1]) } else { None };
+        (best_move, ponder_move)
     }
 
     fn is_draw(&self, board: &Board) -> bool {
@@ -1242,8 +1244,8 @@ fn main() {
                 // bestmove e5d4 ponder c3d4
                 let benchmark_board = Board::from_str("r2q1rk1/2p1bppp/p1np1n2/1p2p3/3PP1b1/1BP1BN2/PP3PPP/RN1QR1K1 b - - 2 10").unwrap();
                 benchmark_engine.set_position(&benchmark_board);
-                let best_move = benchmark_engine.search(&benchmark_board, 10, None);
-                println!("Best move: {best_move}");
+                let (best_move, _ponder) = benchmark_engine.search(&benchmark_board, 10, None);
+                println!("Best move: {}", best_move);
             }
             Ok((_, UCICommand::Position { fen, moves })) => {
                 if let Some(fen_string) = fen {
@@ -1290,8 +1292,12 @@ fn main() {
                     wtime, btime, winc, binc, movestogo, movetime, current_board.side_to_move()
                 );
 
-                let best_move = engine.search(&current_board, search_depth, time_limit);
-                println!("bestmove {best_move}");
+                let (best_move, ponder_move) = engine.search(&current_board, search_depth, time_limit);
+                if let Some(ponder) = ponder_move {
+                    println!("bestmove {} ponder {}", best_move, ponder);
+                } else {
+                    println!("bestmove {}", best_move);
+                }
                 
                 // More aggressive transposition table cleanup
                 if engine.transposition_table.iter().filter(|e| e.is_some()).count() > 800_000 {

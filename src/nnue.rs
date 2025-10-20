@@ -49,15 +49,11 @@ impl NNUE {
             .map_err(|e| format!("Failed to read version: {}", e))?;
         let version = u32::from_le_bytes(version_bytes);
         
-        eprintln!("NNUE version: 0x{:08x}", version);
-        
         // Read hash (4 bytes)
         let mut hash_bytes = [0u8; 4];
         cursor.read_exact(&mut hash_bytes)
             .map_err(|e| format!("Failed to read hash: {}", e))?;
         let hash = u32::from_le_bytes(hash_bytes);
-        
-        eprintln!("NNUE hash: 0x{:08x}", hash);
         
         // Read description size (4 bytes)
         let mut desc_size_bytes = [0u8; 4];
@@ -70,9 +66,7 @@ impl NNUE {
         cursor.read_exact(&mut desc)
             .map_err(|e| format!("Failed to read description: {}", e))?;
         
-        eprintln!("NNUE description: {} bytes", desc_size);
-        
-        // Read feature transformer
+        // Read feature transformer - stored as [HIDDEN_SIZE][TRANSFORMER_INPUTS]
         let mut ft_biases = vec![0i16; HIDDEN_SIZE];
         for bias in ft_biases.iter_mut() {
             let mut bytes = [0u8; 2];
@@ -81,12 +75,15 @@ impl NNUE {
             *bias = i16::from_le_bytes(bytes);
         }
         
+        // Weights stored as [HIDDEN_SIZE][TRANSFORMER_INPUTS]
         let mut ft_weights = vec![0i16; HIDDEN_SIZE * TRANSFORMER_INPUTS];
-        for weight in ft_weights.iter_mut() {
-            let mut bytes = [0u8; 2];
-            cursor.read_exact(&mut bytes)
-                .map_err(|e| format!("Failed to read FT weight: {}", e))?;
-            *weight = i16::from_le_bytes(bytes);
+        for i in 0..HIDDEN_SIZE {
+            for j in 0..TRANSFORMER_INPUTS {
+                let mut bytes = [0u8; 2];
+                cursor.read_exact(&mut bytes)
+                    .map_err(|e| format!("Failed to read FT weight: {}", e))?;
+                ft_weights[i * TRANSFORMER_INPUTS + j] = i16::from_le_bytes(bytes);
+            }
         }
         
         // Read PSQT weights (8 buckets * 768 inputs) - skip for now as not used
@@ -109,11 +106,13 @@ impl NNUE {
         }
         
         let mut l1_weights = vec![0i8; L2_SIZE * HIDDEN_SIZE * 2];
-        for weight in l1_weights.iter_mut() {
-            let mut byte = [0u8; 1];
-            cursor.read_exact(&mut byte)
-                .map_err(|e| format!("Failed to read L1 weight: {}", e))?;
-            *weight = byte[0] as i8;
+        for i in 0..L2_SIZE {
+            for j in 0..(HIDDEN_SIZE * 2) {
+                let mut byte = [0u8; 1];
+                cursor.read_exact(&mut byte)
+                    .map_err(|e| format!("Failed to read L1 weight: {}", e))?;
+                l1_weights[i * (HIDDEN_SIZE * 2) + j] = byte[0] as i8;
+            }
         }
         
         // Read L2 layer (16 -> 32)
@@ -126,11 +125,13 @@ impl NNUE {
         }
         
         let mut l2_weights = vec![0i8; L3_SIZE * L2_SIZE];
-        for weight in l2_weights.iter_mut() {
-            let mut byte = [0u8; 1];
-            cursor.read_exact(&mut byte)
-                .map_err(|e| format!("Failed to read L2 weight: {}", e))?;
-            *weight = byte[0] as i8;
+        for i in 0..L3_SIZE {
+            for j in 0..L2_SIZE {
+                let mut byte = [0u8; 1];
+                cursor.read_exact(&mut byte)
+                    .map_err(|e| format!("Failed to read L2 weight: {}", e))?;
+                l2_weights[i * L2_SIZE + j] = byte[0] as i8;
+            }
         }
         
         // Read L3 layer (32 -> 1)
@@ -147,9 +148,7 @@ impl NNUE {
             *weight = byte[0] as i8;
         }
         
-        eprintln!("NNUE loaded: FT={}x{}, L1={}x{}, L2={}x{}, L3={}x1", 
-                  TRANSFORMER_INPUTS, HIDDEN_SIZE, HIDDEN_SIZE*2, L2_SIZE, 
-                  L2_SIZE, L3_SIZE, L3_SIZE);
+        eprintln!("NNUE loaded successfully (v:0x{:x} h:0x{:x})", version, hash);
         
         Ok(Self {
             ft_weights,
@@ -201,13 +200,14 @@ impl NNUE {
                     // White perspective
                     let idx_w = self.get_feature_index(piece, color, square, Color::White);
                     for i in 0..HIDDEN_SIZE {
-                        acc_white[i] += self.ft_weights[idx_w * HIDDEN_SIZE + i];
+                        // Weights are stored as [HIDDEN_SIZE][TRANSFORMER_INPUTS]
+                        acc_white[i] += self.ft_weights[i * TRANSFORMER_INPUTS + idx_w];
                     }
                     
                     // Black perspective
                     let idx_b = self.get_feature_index(piece, color, square, Color::Black);
                     for i in 0..HIDDEN_SIZE {
-                        acc_black[i] += self.ft_weights[idx_b * HIDDEN_SIZE + i];
+                        acc_black[i] += self.ft_weights[i * TRANSFORMER_INPUTS + idx_b];
                     }
                 }
             }
@@ -220,17 +220,19 @@ impl NNUE {
             (&acc_black, &acc_white)
         };
         
-        // L1: Apply ClippedReLU and forward
+        // L1: Apply SqrClippedReLU (squared clipped ReLU) and forward
         let mut l1_out = vec![0i32; L2_SIZE];
         for i in 0..L2_SIZE {
             let mut sum = self.l1_biases[i];
             for j in 0..HIDDEN_SIZE {
                 let us_val = us[j].clamp(0, QA as i16) as i32;
                 let them_val = them[j].clamp(0, QA as i16) as i32;
-                sum += us_val * self.l1_weights[i * HIDDEN_SIZE * 2 + j] as i32;
-                sum += them_val * self.l1_weights[i * HIDDEN_SIZE * 2 + HIDDEN_SIZE + j] as i32;
+                sum += us_val * self.l1_weights[i * (HIDDEN_SIZE * 2) + j] as i32;
+                sum += them_val * self.l1_weights[i * (HIDDEN_SIZE * 2) + HIDDEN_SIZE + j] as i32;
             }
-            l1_out[i] = sum.clamp(0, QA * QB);
+            // SqrClippedReLU: clamp then square
+            let clamped = sum.clamp(0, QA * QB);
+            l1_out[i] = clamped * clamped / (QA * QB);
         }
         
         // L2: Apply ClippedReLU and forward
@@ -238,7 +240,7 @@ impl NNUE {
         for i in 0..L3_SIZE {
             let mut sum = self.l2_biases[i];
             for j in 0..L2_SIZE {
-                sum += (l1_out[j] / QB) * self.l2_weights[i * L2_SIZE + j] as i32;
+                sum += l1_out[j] * self.l2_weights[i * L2_SIZE + j] as i32;
             }
             l2_out[i] = sum.clamp(0, 127 * QB);
         }
@@ -246,11 +248,11 @@ impl NNUE {
         // L3: Output layer
         let mut output = self.l3_bias;
         for j in 0..L3_SIZE {
-            output += (l2_out[j] / QB) * self.l3_weights[j] as i32;
+            output += l2_out[j] * self.l3_weights[j] as i32;
         }
         
-        // Scale to centipawns
-        ((output / QB) / FV_SCALE) as i16
+        // Scale to centipawns (Stockfish uses 600 * 16 = 9600 as scale factor)
+        (output / (QB * FV_SCALE)) as i16
     }
 }
 
