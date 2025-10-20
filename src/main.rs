@@ -560,6 +560,7 @@ impl ChessEngine {
         }
 
         // Get current position NNUE evaluation for futility pruning and extensions
+        // This allows the engine to make informed decisions about which moves to search deeper
         let current_eval = evaluate_board(board);
         let adjusted_current_eval = match board.side_to_move() {
             Color::White => current_eval,
@@ -581,6 +582,7 @@ impl ChessEngine {
             self.position_history.push_position(new_board.get_hash(), is_capture_or_pawn);
             
             // Calculate NNUE evaluation improvement for this move
+            // This tells us how much better/worse the position becomes from NNUE's perspective
             let new_eval = evaluate_board(&new_board);
             let adjusted_new_eval = match board.side_to_move() {
                 Color::White => -new_eval,  // Opposite because it's opponent's perspective
@@ -592,16 +594,18 @@ impl ChessEngine {
             let mut extension = 0;
 
             // Selective search extension: extend moves that NNUE rates highly
-            // This makes the engine search promising moves deeper
+            // This makes the engine search promising moves deeper, which is crucial for finding
+            // the best continuation when NNUE identifies a strong tactical or positional opportunity
             if depth >= 2 && eval_improvement > 100 && new_board.checkers().popcnt() == 0 {
                 extension = 1;
             } else if new_board.checkers().popcnt() > 0 {
-                // Also extend checks
+                // Also extend checks as they're tactically important
                 extension = 1;
             }
 
             // Futility pruning: skip moves that look hopeless according to NNUE
             // Only in non-PV nodes and late in the move list
+            // This saves time by not searching moves that NNUE evaluates as significantly worse
             if move_count > 3 && depth <= 3 && 
                board.piece_on(chess_move.get_dest()).is_none() && // Not a capture
                chess_move.get_promotion().is_none() && // Not a promotion
@@ -614,12 +618,14 @@ impl ChessEngine {
             }
 
             // Late move reductions - but reduce less for NNUE-preferred moves
+            // This ensures promising moves identified by NNUE get adequate search depth
             if move_count > 4 && depth >= 3 && 
                board.piece_on(chess_move.get_dest()).is_none() && // Not a capture
                chess_move.get_promotion().is_none() && // Not a promotion
                new_board.checkers().popcnt() == 0 { // Doesn't give check
 
                 // Reduce depth for late moves, but reduce less if NNUE likes the move
+                // This is a key improvement: NNUE-preferred moves maintain deeper search
                 let reduction = if eval_improvement > 50 {
                     1  // Smaller reduction for promising moves
                 } else if move_count > 8 {
@@ -812,6 +818,7 @@ impl ChessEngine {
 
             // NNUE-guided move ordering for non-tactical moves
             // This helps prioritize positionally strong moves that NNUE evaluates highly
+            // Applied selectively to balance accuracy with performance
             if score > -7000 { // Only for non-captures/promotions (more expensive)
                 let new_board = board.make_move_new(mv);
                 
@@ -822,6 +829,7 @@ impl ChessEngine {
                 
                 // NNUE evaluation for move ordering (for quiet moves and in deeper searches)
                 // Only evaluate if not already high priority and we're past ply 0
+                // This makes the engine trust NNUE's positional understanding
                 if ply > 0 && score > -5000 {
                     let nnue_eval = evaluate_board(&new_board);
                     let adjusted_eval = if side_to_move == Color::White {
@@ -830,6 +838,7 @@ impl ChessEngine {
                         -nnue_eval
                     };
                     // Weight NNUE evaluation in move ordering (scaled down to not dominate)
+                    // Dividing by 20 means a 200cp difference influences ordering by ~10 points
                     score -= adjusted_eval / 20;
                 }
             }

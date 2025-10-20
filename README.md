@@ -46,6 +46,15 @@ This executable can be registered in a chess gui (e.g. cutechess) to play agains
 ## NNUE
 Shard uses the same NNUE as stockfish, albeit the HalfKP models, which came during/before 2022. Currently its using the latest one `nn-62ef826d1a6d.nnue`. These nnue models can be downloaded from fishtest.
 
+### NNUE-Guided Search
+Shard integrates NNUE evaluations throughout the search process to identify and explore promising moves more deeply:
+- **NNUE-guided move ordering**: Prioritizes moves that NNUE evaluates favorably
+- **Selective extensions**: Searches NNUE-preferred moves deeper
+- **Futility pruning**: Skips moves that NNUE evaluates as significantly worse
+- **Adaptive reductions**: Reduces search depth less for promising moves
+
+See [NNUE_IMPROVEMENTS.md](NNUE_IMPROVEMENTS.md) for detailed documentation of these enhancements.
+
 ## License
 
 This project is licensed under the GNU GPLv3 License. See the [LICENSE](LICENSE) file for details.
