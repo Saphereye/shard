@@ -44,17 +44,16 @@ cargo build --release
 This executable can be registered in a chess gui (e.g. cutechess) to play against.
 
 ## NNUE
-Shard now supports modern Stockfish NNUE architectures with a custom implementation. The engine uses:
-- **HalfKAv2 Architecture**: Modern efficient architecture compatible with latest Stockfish networks
-- **Classical Fallback**: Automatic fallback to classical evaluation if NNUE file is unavailable
-- **Confidence-Based Evaluation**: NNUE evaluations are adjusted based on position characteristics
+Shard uses HalfKP NNUE models compatible with older Stockfish networks (2020-2022 era). 
 
-### Loading NNUE Files
-Place NNUE files in the `assets/` directory:
-- `nn-latest.nnue` - Latest Stockfish NNUE (recommended)
-- `nn-62ef826d1a6d.nnue` - Legacy format (fallback)
+**Important**: You must download and place an NNUE file in the `assets/` directory for the engine to work.
 
-The engine will automatically use the available NNUE file or fall back to classical evaluation.
+### Getting NNUE Files
+1. **Visit**: https://tests.stockfishchess.org/nns
+2. **Download**: A HalfKP format NNUE (e.g., `nn-1c0000000000.nnue`)
+3. **Place** in `assets/nn-1c0000000000.nnue` or `assets/nn-latest.nnue`
+
+**Note**: Latest Stockfish networks (HalfKAv2_hm) use a different format not yet supported. Use HalfKP networks for now.
 
 ### NNUE-Guided Search
 Shard integrates NNUE evaluations throughout the search process with confidence adjustment:
@@ -64,9 +63,9 @@ Shard integrates NNUE evaluations throughout the search process with confidence 
 - **Dynamic LMR**: Reduction thresholds adjusted based on evaluation confidence
 
 The engine is more skeptical of NNUE in:
-- Opening positions (early game)
-- Tactical positions (extreme evaluations)
-- Sparse positions (endgames with few pieces)
+- Opening positions (early game) - 70% confidence
+- Tactical positions (extreme evaluations) - 60% confidence  
+- Sparse positions (endgames with few pieces) - 80% confidence
 
 See [NNUE_IMPROVEMENTS.md](NNUE_IMPROVEMENTS.md) for detailed documentation of these enhancements.
 
