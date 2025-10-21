@@ -66,28 +66,35 @@ impl NNUE {
             .map_err(|e| format!("Failed to read desc size: {}", e))?;
         let desc_size = u32::from_le_bytes(desc_size_bytes);
         
-        // Read description to extract hidden size
+        // Read description
         let mut desc = vec![0u8; desc_size as usize];
         cursor.read_exact(&mut desc)
             .map_err(|e| format!("Failed to read description: {}", e))?;
         
-        // Parse architecture from description: "Features=HalfKAv2_hm(Friend)[41024->128x2]"
-        // Extract the hidden size (128, 2048, or 3072)
         let desc_str = String::from_utf8_lossy(&desc);
-        let hidden_size = if desc_str.contains("->128") {
-            128
-        } else if desc_str.contains("->2048") || desc_str.contains("->1536") {
-            2048  // Some nets report 1536 but actually use 2048
-        } else if desc_str.contains("->3072") {
-            3072
-        } else {
-            // Default to 2048 if we can't parse
-            eprintln!("Warning: Could not parse hidden size from description, defaulting to 2048");
-            eprintln!("Description: {}", desc_str);
-            2048
-        };
+        eprintln!("NNUE description: {}", desc_str.trim_end_matches('\0'));
         
-        eprintln!("NNUE description: {} bytes", desc_size);
+        // Calculate hidden size from file size since descriptions don't always contain it
+        // File structure: version(4) + hash(4) + desc_size(4) + desc(desc_size) + 
+        //   FT_biases(hidden*2) + FT_weights(hidden*22528*2) + PSQT(8*22528*4) +
+        //   L1_biases(16*4) + L1_weights(16*hidden*2) + L2_biases(32*4) + L2_weights(32*16) +
+        //   L3_bias(4) + L3_weights(32)
+        let total_size = data.len();
+        let header_size = 12 + desc_size as usize;  // version + hash + desc_size + desc
+        let fixed_size = 8 * TRANSFORMER_INPUTS * 4  // PSQT
+            + L2_SIZE * 4  // L1 biases
+            + L3_SIZE * 4  // L2 biases
+            + L3_SIZE * L2_SIZE  // L2 weights
+            + 4  // L3 bias
+            + L3_SIZE;  // L3 weights
+        
+        let variable_size = total_size - header_size - fixed_size;
+        
+        // variable_size = hidden*2 + hidden*22528*2 + 16*hidden*2
+        //               = hidden * (2 + 45056 + 32)
+        //               = hidden * 45090
+        let hidden_size = variable_size / 45090;
+        
         eprintln!("NNUE loaded: FT={}x{}, L1={}x{}, L2={}x{}, L3={}x1",
                   TRANSFORMER_INPUTS, hidden_size, hidden_size*2, L2_SIZE, L2_SIZE, L3_SIZE, L3_SIZE);
         
