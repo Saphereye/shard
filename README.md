@@ -36,7 +36,17 @@ Rxh7# {+289.99/10 0.15s, Black mates} 0-1
 ```
 
 ## Quickstart
-Create the executable at `./target/release/shard` using
+Before building, you need to download the NNUE evaluation file:
+```bash
+wget -O assets/nn-62ef826d1a6d.nnue https://github.com/official-stockfish/networks/raw/master/nn-62ef826d1a6d.nnue
+```
+
+Or if wget is not available:
+```bash
+curl -L -o assets/nn-62ef826d1a6d.nnue https://github.com/official-stockfish/networks/raw/master/nn-62ef826d1a6d.nnue
+```
+
+Then create the executable at `./target/release/shard` using
 ```bash
 cargo build --release
 ```
