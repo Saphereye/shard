@@ -1,26 +1,22 @@
 #![allow(static_mut_refs)]
 use chess::Board;
-use std::io::Cursor;
-use timecat::nnue::HalfKPModel;
-use timecat::nnue::HalfKPModelReader;
-use timecat::BinRead;
+use timecat::evaluate::Evaluator;
 use timecat::ChessPosition;
+use timecat::utils::extension_traits::PositionEvaluation;
 
 use std::sync::Once;
 
-static mut MODEL: Option<HalfKPModel> = None;
+static mut EVALUATOR: Option<Evaluator> = None;
 static INIT: Once = Once::new();
 
 pub fn evaluate_board(board: &Board) -> i16 {
     let position = ChessPosition::from_fen(&board.to_string()).unwrap();
     unsafe {
         INIT.call_once(|| {
-            let data = include_bytes!("../assets/nn-62ef826d1a6d.nnue");
-            let mut cursor = Cursor::new(data);
-            let reader = HalfKPModelReader::read(&mut cursor).unwrap();
-            MODEL = Some(reader.to_default_model());
+            // Use timecat's Default evaluator which includes built-in NNUE when inbuilt_nnue feature is enabled
+            EVALUATOR = Some(Evaluator::default());
         });
         
-        MODEL.as_mut().unwrap().update_model_and_evaluate(&position)
+        EVALUATOR.as_mut().unwrap().evaluate(&position) as i16
     }
 }

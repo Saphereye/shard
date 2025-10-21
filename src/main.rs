@@ -212,7 +212,7 @@ impl Default for ChessEngine {
 
 impl ChessEngine {
     pub fn new() -> Self {
-        let tt_size = 1 << 20; // 1M entries
+        let tt_size = 1 << 22; // 4M entries for stronger play
         Self {
             transposition_table: vec![None; tt_size],
             tt_size,
@@ -575,14 +575,14 @@ impl ChessEngine {
             
             let mut score;
 
-            // Late move reductions
-            if move_count > 4 && depth >= 3 && 
+            // Late move reductions - more aggressive for stronger play
+            if move_count > 3 && depth >= 3 && 
                board.piece_on(chess_move.get_dest()).is_none() && // Not a capture
                chess_move.get_promotion().is_none() && // Not a promotion
                new_board.checkers().popcnt() == 0 { // Doesn't give check
 
-                // Reduce depth for late moves
-                let reduction = if move_count > 8 { 2 } else { 1 };
+                // More aggressive reduction for late moves
+                let reduction = if move_count > 12 { 3 } else if move_count > 6 { 2 } else { 1 };
                 score = -self.negamax(&new_board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, true);
 
                 // If reduced search fails high, re-search with full depth
@@ -1180,7 +1180,7 @@ fn main() {
                     nodes: _,
                 },
             )) => {
-                let search_depth = depth.unwrap_or(11) as u8;
+                let search_depth = depth.unwrap_or(13) as u8;
                 let time_limit = calculate_time_limit(
                     wtime, btime, winc, binc, movestogo, movetime, current_board.side_to_move()
                 );
@@ -1188,8 +1188,8 @@ fn main() {
                 let best_move = engine.search(&current_board, search_depth, time_limit);
                 println!("bestmove {best_move}");
                 
-                // More aggressive transposition table cleanup
-                if engine.transposition_table.iter().filter(|e| e.is_some()).count() > 800_000 {
+                // More aggressive transposition table cleanup for larger TT
+                if engine.transposition_table.iter().filter(|e| e.is_some()).count() > 3_500_000 {
                     let current_age = engine.tt_age;
                     engine.transposition_table.iter_mut().for_each(|entry| {
                         if let Some(ref e) = entry {
