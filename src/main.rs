@@ -212,7 +212,7 @@ impl Default for ChessEngine {
 
 impl ChessEngine {
     pub fn new() -> Self {
-        let tt_size = 1 << 22; // 4M entries for stronger play
+        let tt_size = 1 << 20; // 1M entries - reverted for stability
         Self {
             transposition_table: vec![None; tt_size],
             tt_size,
@@ -1188,8 +1188,8 @@ fn main() {
                 let best_move = engine.search(&current_board, search_depth, time_limit);
                 println!("bestmove {best_move}");
                 
-                // More aggressive transposition table cleanup for larger TT
-                if engine.transposition_table.iter().filter(|e| e.is_some()).count() > 3_500_000 {
+                // More aggressive transposition table cleanup
+                if engine.transposition_table.iter().filter(|e| e.is_some()).count() > 800_000 {
                     let current_age = engine.tt_age;
                     engine.transposition_table.iter_mut().for_each(|entry| {
                         if let Some(ref e) = entry {
