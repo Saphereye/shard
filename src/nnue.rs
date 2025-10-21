@@ -7,7 +7,6 @@ use std::io::Read;
 // Network dimensions for HalfKAv2_hm
 const PS_NB: usize = 11 * 64;  // 704
 const TRANSFORMER_INPUTS: usize = 64 * PS_NB / 2;  // 22528
-const HIDDEN_SIZE: usize = 2048;          // Smaller net, big net is 3072
 const L2_SIZE: usize = 16;                // Always 16 for this architecture (called 15 in SF but +1 for PSQT)
 const L3_SIZE: usize = 32;                // Always 32
 
@@ -16,12 +15,14 @@ const QB: i32 = 64;  // 2^WeightScaleBits where WeightScaleBits = 6
 const FV_SCALE: i32 = 16;  // OutputScale
 
 pub struct NNUE {
-    // Feature transformer (768 -> 2048)
-    ft_weights: Vec<i16>,  // [2048][768]
-    ft_biases: Vec<i16>,   // [2048]
+    hidden_size: usize,    // Variable: 128, 2048, or 3072 depending on network
     
-    // Layer 1 (2048*2 -> 16)
-    l1_weights: Vec<i8>,   // [16][2048*2]
+    // Feature transformer (TRANSFORMER_INPUTS -> hidden_size)
+    ft_weights: Vec<i16>,  // [hidden_size][TRANSFORMER_INPUTS]
+    ft_biases: Vec<i16>,   // [hidden_size]
+    
+    // Layer 1 (hidden_size*2 -> 16)
+    l1_weights: Vec<i8>,   // [16][hidden_size*2]
     l1_biases: Vec<i32>,   // [16]
     
     // Layer 2 (16 -> 32)
@@ -49,11 +50,15 @@ impl NNUE {
             .map_err(|e| format!("Failed to read version: {}", e))?;
         let version = u32::from_le_bytes(version_bytes);
         
+        eprintln!("NNUE version: 0x{:x}", version);
+        
         // Read hash (4 bytes)
         let mut hash_bytes = [0u8; 4];
         cursor.read_exact(&mut hash_bytes)
             .map_err(|e| format!("Failed to read hash: {}", e))?;
         let hash = u32::from_le_bytes(hash_bytes);
+        
+        eprintln!("NNUE hash: 0x{:x}", hash);
         
         // Read description size (4 bytes)
         let mut desc_size_bytes = [0u8; 4];
@@ -61,13 +66,33 @@ impl NNUE {
             .map_err(|e| format!("Failed to read desc size: {}", e))?;
         let desc_size = u32::from_le_bytes(desc_size_bytes);
         
-        // Skip description
+        // Read description to extract hidden size
         let mut desc = vec![0u8; desc_size as usize];
         cursor.read_exact(&mut desc)
             .map_err(|e| format!("Failed to read description: {}", e))?;
         
-        // Read feature transformer - stored as [HIDDEN_SIZE][TRANSFORMER_INPUTS]
-        let mut ft_biases = vec![0i16; HIDDEN_SIZE];
+        // Parse architecture from description: "Features=HalfKAv2_hm(Friend)[41024->128x2]"
+        // Extract the hidden size (128, 2048, or 3072)
+        let desc_str = String::from_utf8_lossy(&desc);
+        let hidden_size = if desc_str.contains("->128") {
+            128
+        } else if desc_str.contains("->2048") || desc_str.contains("->1536") {
+            2048  // Some nets report 1536 but actually use 2048
+        } else if desc_str.contains("->3072") {
+            3072
+        } else {
+            // Default to 2048 if we can't parse
+            eprintln!("Warning: Could not parse hidden size from description, defaulting to 2048");
+            eprintln!("Description: {}", desc_str);
+            2048
+        };
+        
+        eprintln!("NNUE description: {} bytes", desc_size);
+        eprintln!("NNUE loaded: FT={}x{}, L1={}x{}, L2={}x{}, L3={}x1",
+                  TRANSFORMER_INPUTS, hidden_size, hidden_size*2, L2_SIZE, L2_SIZE, L3_SIZE, L3_SIZE);
+        
+        // Read feature transformer - stored as [hidden_size][TRANSFORMER_INPUTS]
+        let mut ft_biases = vec![0i16; hidden_size];
         for bias in ft_biases.iter_mut() {
             let mut bytes = [0u8; 2];
             cursor.read_exact(&mut bytes)
@@ -75,9 +100,9 @@ impl NNUE {
             *bias = i16::from_le_bytes(bytes);
         }
         
-        // Weights stored as [HIDDEN_SIZE][TRANSFORMER_INPUTS]
-        let mut ft_weights = vec![0i16; HIDDEN_SIZE * TRANSFORMER_INPUTS];
-        for i in 0..HIDDEN_SIZE {
+        // Weights stored as [hidden_size][TRANSFORMER_INPUTS]
+        let mut ft_weights = vec![0i16; hidden_size * TRANSFORMER_INPUTS];
+        for i in 0..hidden_size {
             for j in 0..TRANSFORMER_INPUTS {
                 let mut bytes = [0u8; 2];
                 cursor.read_exact(&mut bytes)
@@ -86,7 +111,7 @@ impl NNUE {
             }
         }
         
-        // Read PSQT weights (8 buckets * 768 inputs) - skip for now as not used
+        // Read PSQT weights (8 buckets * TRANSFORMER_INPUTS) - skip for now as not used
         let psqt_size = 8 * TRANSFORMER_INPUTS;
         let mut _psqt_weights = vec![0i32; psqt_size];
         for weight in _psqt_weights.iter_mut() {
@@ -96,7 +121,7 @@ impl NNUE {
             *weight = i32::from_le_bytes(bytes);
         }
         
-        // Read L1 layer (2048*2 -> 16)
+        // Read L1 layer (hidden_size*2 -> 16)
         let mut l1_biases = vec![0i32; L2_SIZE];
         for bias in l1_biases.iter_mut() {
             let mut bytes = [0u8; 4];
@@ -105,13 +130,13 @@ impl NNUE {
             *bias = i32::from_le_bytes(bytes);
         }
         
-        let mut l1_weights = vec![0i8; L2_SIZE * HIDDEN_SIZE * 2];
+        let mut l1_weights = vec![0i8; L2_SIZE * hidden_size * 2];
         for i in 0..L2_SIZE {
-            for j in 0..(HIDDEN_SIZE * 2) {
+            for j in 0..(hidden_size * 2) {
                 let mut byte = [0u8; 1];
                 cursor.read_exact(&mut byte)
                     .map_err(|e| format!("Failed to read L1 weight: {}", e))?;
-                l1_weights[i * (HIDDEN_SIZE * 2) + j] = byte[0] as i8;
+                l1_weights[i * (hidden_size * 2) + j] = byte[0] as i8;
             }
         }
         
@@ -148,9 +173,8 @@ impl NNUE {
             *weight = byte[0] as i8;
         }
         
-        eprintln!("NNUE loaded successfully (v:0x{:x} h:0x{:x})", version, hash);
-        
         Ok(Self {
+            hidden_size,
             ft_weights,
             ft_biases,
             l1_weights,
@@ -217,10 +241,10 @@ impl NNUE {
     
     pub fn evaluate(&self, board: &Board) -> i16 {
         // Initialize accumulators with biases
-        let mut acc_white = vec![0i32; HIDDEN_SIZE];
-        let mut acc_black = vec![0i32; HIDDEN_SIZE];
+        let mut acc_white = vec![0i32; self.hidden_size];
+        let mut acc_black = vec![0i32; self.hidden_size];
         
-        for i in 0..HIDDEN_SIZE {
+        for i in 0..self.hidden_size {
             acc_white[i] = self.ft_biases[i] as i32;
             acc_black[i] = self.ft_biases[i] as i32;
         }
@@ -241,14 +265,14 @@ impl NNUE {
                     
                     // White perspective
                     let idx_w = self.get_feature_index(piece, color, square, white_king_sq, Color::White);
-                    for i in 0..HIDDEN_SIZE {
-                        // Weights are stored as [HIDDEN_SIZE][TRANSFORMER_INPUTS]
+                    for i in 0..self.hidden_size {
+                        // Weights are stored as [hidden_size][TRANSFORMER_INPUTS]
                         acc_white[i] += self.ft_weights[i * TRANSFORMER_INPUTS + idx_w] as i32;
                     }
                     
                     // Black perspective
                     let idx_b = self.get_feature_index(piece, color, square, black_king_sq, Color::Black);
-                    for i in 0..HIDDEN_SIZE {
+                    for i in 0..self.hidden_size {
                         acc_black[i] += self.ft_weights[i * TRANSFORMER_INPUTS + idx_b] as i32;
                     }
                 }
@@ -268,12 +292,12 @@ impl NNUE {
         let mut l1_out = vec![0i8; L2_SIZE];
         for i in 0..L2_SIZE {
             let mut sum = self.l1_biases[i];
-            for j in 0..HIDDEN_SIZE {
+            for j in 0..self.hidden_size {
                 // Clamp accumulator values to [0, 255] as per Stockfish
                 let us_val = us[j].clamp(0, 255);
                 let them_val = them[j].clamp(0, 255);
-                sum += us_val * self.l1_weights[i * (HIDDEN_SIZE * 2) + j] as i32;
-                sum += them_val * self.l1_weights[i * (HIDDEN_SIZE * 2) + HIDDEN_SIZE + j] as i32;
+                sum += us_val * self.l1_weights[i * (self.hidden_size * 2) + j] as i32;
+                sum += them_val * self.l1_weights[i * (self.hidden_size * 2) + self.hidden_size + j] as i32;
             }
             // SqrClippedReLU: square THEN shift and clamp
             // Input can be negative, squaring makes it positive
