@@ -10,4 +10,7 @@ nom = "7.1.3"
 timecat = { version = "1.45.6", default-features = false, features = ["inbuilt_nnue"] }
 
 [profile.release]
-debug = true
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+strip = false
