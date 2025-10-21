@@ -489,6 +489,22 @@ impl ChessEngine {
         self.stats.nodes_searched += 1;
         self.nodes_since_check += 1;
 
+        // Check time limit periodically to avoid running out of time
+        if self.nodes_since_check >= 2048 {
+            self.nodes_since_check = 0;
+            if let Some(time_limit) = self.time_limit {
+                if let Some(start) = self.start_time {
+                    if start.elapsed() >= time_limit {
+                        // Time's up - return immediately with current best evaluation
+                        return evaluate_board(board) * match board.side_to_move() {
+                            Color::White => 1,
+                            Color::Black => -1
+                        };
+                    }
+                }
+            }
+        }
+
         // Check for draw conditions first
         if self.is_draw(board) {
             self.stats.repetition_draws += 1;
@@ -969,7 +985,7 @@ fn calculate_time_limit(
 ) -> Option<Duration> {
     // Case 1: movetime override
     if let Some(ms) = movetime {
-        return Some(Duration::from_millis(ms.saturating_sub(50))); // 50ms overhead
+        return Some(Duration::from_millis(ms.saturating_sub(100))); // 100ms overhead for safety
     }
 
     // Get time and increment for current player
@@ -979,29 +995,29 @@ fn calculate_time_limit(
     };
 
     // Don't search if almost no time left
-    if time_left < 100 {
-        return Some(Duration::from_millis(10));
+    if time_left < 200 {
+        return Some(Duration::from_millis(50));
     }
 
-    let overhead = 50u64; // Network/GUI overhead
+    let overhead = 100u64; // Increased overhead for safety
     let usable_time = time_left.saturating_sub(overhead);
-    let emergency_reserve = usable_time / 20; // 5% emergency reserve
+    let emergency_reserve = usable_time / 15; // 6.7% emergency reserve (more conservative)
     let available_time = usable_time.saturating_sub(emergency_reserve);
 
     let allocated_time = match movestogo {
         // Tournament time control (e.g., 40/90+30)
         Some(moves_left) => {
             if moves_left == 0 {
-                (available_time as f64 * 0.02) as u64 + increment / 2
+                (available_time as f64 * 0.015) as u64 + increment / 3
             } else {
                 let base_per_move = available_time / moves_left;
-                let increment_bonus = (increment * 4) / 5; // Use 80% of increment
+                let increment_bonus = (increment * 3) / 5; // Use 60% of increment (more conservative)
                 
-                // Don't use more than 1/3 of time in one move unless in severe time trouble
+                // Don't use more than 1/4 of time in one move (more conservative)
                 let max_time = if moves_left <= 5 {
-                    available_time / moves_left + increment / 2
+                    available_time / moves_left + increment / 3
                 } else {
-                    (available_time / 3).min(base_per_move * 3)
+                    (available_time / 4).min(base_per_move * 2)
                 };
                 
                 (base_per_move + increment_bonus).min(max_time)
@@ -1010,18 +1026,18 @@ fn calculate_time_limit(
         
         // Sudden death or increment games
         None => {
-            // Use smaller fraction of remaining time
-            let base_fraction = if available_time > 60000 { 0.03 } else { 0.02 }; // 3% or 2%
+            // Use smaller fraction of remaining time (more conservative)
+            let base_fraction = if available_time > 60000 { 0.025 } else { 0.015 }; // 2.5% or 1.5%
             let base_time = (available_time as f64 * base_fraction) as u64;
-            let increment_bonus = (increment * 4) / 5; // Use 80% of increment
+            let increment_bonus = (increment * 3) / 5; // Use 60% of increment
             
-            // Maximum time limits to prevent spending too much early
+            // Maximum time limits to prevent spending too much early (more conservative)
             let max_time = if available_time > 300000 { // > 5 minutes
-                available_time / 10 // Max 10% of time
+                available_time / 12 // Max 8.3% of time
             } else if available_time > 60000 { // > 1 minute
-                available_time / 8  // Max 12.5% of time
+                available_time / 10  // Max 10% of time
             } else {
-                available_time / 5  // Max 20% when low on time
+                available_time / 6  // Max 16.7% when low on time
             };
             
             (base_time + increment_bonus).min(max_time)
@@ -1029,7 +1045,7 @@ fn calculate_time_limit(
     };
 
     // Ensure minimum search time but don't exceed what we have
-    let final_time = allocated_time.clamp(10, available_time);
+    let final_time = allocated_time.clamp(50, available_time);
     
     Some(Duration::from_millis(final_time))
 }
