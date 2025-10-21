@@ -184,12 +184,12 @@ impl NNUE {
     
     pub fn evaluate(&self, board: &Board) -> i16 {
         // Initialize accumulators with biases
-        let mut acc_white = vec![0i16; HIDDEN_SIZE];
-        let mut acc_black = vec![0i16; HIDDEN_SIZE];
+        let mut acc_white = vec![0i32; HIDDEN_SIZE];
+        let mut acc_black = vec![0i32; HIDDEN_SIZE];
         
         for i in 0..HIDDEN_SIZE {
-            acc_white[i] = self.ft_biases[i];
-            acc_black[i] = self.ft_biases[i];
+            acc_white[i] = self.ft_biases[i] as i32;
+            acc_black[i] = self.ft_biases[i] as i32;
         }
         
         // Add features for all pieces
@@ -201,13 +201,13 @@ impl NNUE {
                     let idx_w = self.get_feature_index(piece, color, square, Color::White);
                     for i in 0..HIDDEN_SIZE {
                         // Weights are stored as [HIDDEN_SIZE][TRANSFORMER_INPUTS]
-                        acc_white[i] += self.ft_weights[i * TRANSFORMER_INPUTS + idx_w];
+                        acc_white[i] += self.ft_weights[i * TRANSFORMER_INPUTS + idx_w] as i32;
                     }
                     
                     // Black perspective
                     let idx_b = self.get_feature_index(piece, color, square, Color::Black);
                     for i in 0..HIDDEN_SIZE {
-                        acc_black[i] += self.ft_weights[i * TRANSFORMER_INPUTS + idx_b];
+                        acc_black[i] += self.ft_weights[i * TRANSFORMER_INPUTS + idx_b] as i32;
                     }
                 }
             }
@@ -221,38 +221,47 @@ impl NNUE {
         };
         
         // L1: Apply SqrClippedReLU (squared clipped ReLU) and forward
-        let mut l1_out = vec![0i32; L2_SIZE];
+        // Formula: min(127, (input * input) >> (2 * WeightScaleBits + 7))
+        // WeightScaleBits = 6, so shift by 19
+        let mut l1_out = vec![0i8; L2_SIZE];
         for i in 0..L2_SIZE {
             let mut sum = self.l1_biases[i];
             for j in 0..HIDDEN_SIZE {
-                let us_val = us[j].clamp(0, QA as i16) as i32;
-                let them_val = them[j].clamp(0, QA as i16) as i32;
+                let us_val = us[j].clamp(0, QA as i32);
+                let them_val = them[j].clamp(0, QA as i32);
                 sum += us_val * self.l1_weights[i * (HIDDEN_SIZE * 2) + j] as i32;
                 sum += them_val * self.l1_weights[i * (HIDDEN_SIZE * 2) + HIDDEN_SIZE + j] as i32;
             }
-            // SqrClippedReLU: clamp then square
-            let clamped = sum.clamp(0, QA * QB);
-            l1_out[i] = clamped * clamped / (QA * QB);
+            // SqrClippedReLU: square and shift right by 19 bits, clamp to [0, 127]
+            let squared = (sum as i64) * (sum as i64);
+            l1_out[i] = (squared >> 19).clamp(0, 127) as i8;
         }
         
         // L2: Apply ClippedReLU and forward
-        let mut l2_out = vec![0i32; L3_SIZE];
+        // Output is divided by 2^WeightScaleBits (64) and clamped to [0, 127]
+        let mut l2_out = vec![0i8; L3_SIZE];
         for i in 0..L3_SIZE {
             let mut sum = self.l2_biases[i];
             for j in 0..L2_SIZE {
-                sum += l1_out[j] * self.l2_weights[i * L2_SIZE + j] as i32;
+                sum += l1_out[j] as i32 * self.l2_weights[i * L2_SIZE + j] as i32;
             }
-            l2_out[i] = sum.clamp(0, 127 * QB);
+            // ClippedReLU with shift by WeightScaleBits (6)
+            l2_out[i] = (sum >> 6).clamp(0, 127) as i8;
         }
         
         // L3: Output layer
         let mut output = self.l3_bias;
         for j in 0..L3_SIZE {
-            output += l2_out[j] * self.l3_weights[j] as i32;
+            output += l2_out[j] as i32 * self.l3_weights[j] as i32;
         }
         
-        // Scale to centipawns (Stockfish uses 600 * 16 = 9600 as scale factor)
-        (output / (QB * FV_SCALE)) as i16
+        // Scale to centipawns
+        // Final output is scaled by (600 * OutputScale) / (127 * 2^WeightScaleBits)
+        // = (600 * 16) / (127 * 64) = 9600 / 8128 ≈ 1.18
+        // But Stockfish just divides by 2^WeightScaleBits and multiplies by OutputScale
+        // So: output / 64 / 16 = output / 1024
+        let eval = output / (QB * FV_SCALE);
+        eval as i16
     }
 }
 
