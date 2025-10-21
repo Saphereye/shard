@@ -4,16 +4,16 @@
 use chess::{Board, Color, Piece, Square, BitBoard};
 use std::io::Read;
 
-// Network dimensions
-const TRANSFORMER_INPUTS: usize = 768;   // 12 pieces * 64 squares
-const HIDDEN_SIZE: usize = 2048;          // L1 size
-const L2_SIZE: usize = 16;                // L2 size  
-const L3_SIZE: usize = 32;                // L3 size
+// Network dimensions for HalfKAv2_hm
+const PS_NB: usize = 11 * 64;  // 704
+const TRANSFORMER_INPUTS: usize = 64 * PS_NB / 2;  // 22528
+const HIDDEN_SIZE: usize = 2048;          // Smaller net, big net is 3072
+const L2_SIZE: usize = 16;                // Always 16 for this architecture (called 15 in SF but +1 for PSQT)
+const L3_SIZE: usize = 32;                // Always 32
 
 // Quantization scales
-const QA: i32 = 255;
-const QB: i32 = 64;
-const FV_SCALE: i32 = 16;
+const QB: i32 = 64;  // 2^WeightScaleBits where WeightScaleBits = 6
+const FV_SCALE: i32 = 16;  // OutputScale
 
 pub struct NNUE {
     // Feature transformer (768 -> 2048)
@@ -162,24 +162,57 @@ impl NNUE {
         })
     }
     
-    fn get_feature_index(&self, piece: Piece, color: Color, square: Square, perspective: Color) -> usize {
+    // King bucket mapping for HalfKAv2_hm
+    fn king_bucket(square: Square) -> usize {
+        // Stockfish uses a complex bucket mapping, simplified here
+        // Map squares to 4x8 = 32 buckets then mirror for black
+        let sq = square.to_index();
+        let file = sq % 8;
+        let rank = sq / 8;
+        
+        // Map to buckets (simplified version)
+        let bucket_file = file.min(7 - file);  // Mirror horizontally
+        let bucket_rank = rank.min(7 - rank);  // Mirror vertically
+        
+        bucket_file / 2 + (bucket_rank / 2) * 4
+    }
+    
+    fn get_feature_index(&self, piece: Piece, piece_color: Color, square: Square, 
+                        king_sq: Square, perspective: Color) -> usize {
+        // Skip if this is the king itself
+        if piece == Piece::King {
+            return 0; // Will be ignored
+        }
+        
+        // Get king bucket
+        let king_bucket = Self::king_bucket(king_sq);
+        
+        // Piece type index (0-9 for pawn through queen, friend and enemy)
         let piece_idx = match piece {
             Piece::Pawn => 0,
             Piece::Knight => 1,
             Piece::Bishop => 2,
             Piece::Rook => 3,
             Piece::Queen => 4,
-            Piece::King => 5,
+            Piece::King => return 0, // Redundant check
         };
         
-        let color_offset = if color == perspective { 0 } else { 6 };
-        let sq_idx = if perspective == Color::White {
+        // Add 5 if enemy piece
+        let piece_offset = if piece_color == perspective {
+            piece_idx
+        } else {
+            piece_idx + 5
+        };
+        
+        // Orient square relative to perspective
+        let oriented_sq = if perspective == Color::White {
             square.to_index()
         } else {
-            square.to_index() ^ 56  // Flip vertically for black
+            square.to_index() ^ 56  // Vertical flip
         };
         
-        (piece_idx + color_offset) * 64 + sq_idx
+        // HalfKAv2_hm index: king_bucket * PS_NB + piece_offset * 64 + square
+        king_bucket * PS_NB + piece_offset * 64 + oriented_sq
     }
     
     pub fn evaluate(&self, board: &Board) -> i16 {
@@ -192,20 +225,29 @@ impl NNUE {
             acc_black[i] = self.ft_biases[i] as i32;
         }
         
+        // Get king squares
+        let white_king_sq = (board.pieces(Piece::King) & board.color_combined(Color::White)).to_square();
+        let black_king_sq = (board.pieces(Piece::King) & board.color_combined(Color::Black)).to_square();
+        
         // Add features for all pieces
         for color in [Color::White, Color::Black] {
             for piece in [Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen, Piece::King] {
                 let pieces = board.pieces(piece) & board.color_combined(color);
                 for square in pieces {
+                    // Skip kings as they don't have features
+                    if piece == Piece::King {
+                        continue;
+                    }
+                    
                     // White perspective
-                    let idx_w = self.get_feature_index(piece, color, square, Color::White);
+                    let idx_w = self.get_feature_index(piece, color, square, white_king_sq, Color::White);
                     for i in 0..HIDDEN_SIZE {
                         // Weights are stored as [HIDDEN_SIZE][TRANSFORMER_INPUTS]
                         acc_white[i] += self.ft_weights[i * TRANSFORMER_INPUTS + idx_w] as i32;
                     }
                     
                     // Black perspective
-                    let idx_b = self.get_feature_index(piece, color, square, Color::Black);
+                    let idx_b = self.get_feature_index(piece, color, square, black_king_sq, Color::Black);
                     for i in 0..HIDDEN_SIZE {
                         acc_black[i] += self.ft_weights[i * TRANSFORMER_INPUTS + idx_b] as i32;
                     }
@@ -227,12 +269,14 @@ impl NNUE {
         for i in 0..L2_SIZE {
             let mut sum = self.l1_biases[i];
             for j in 0..HIDDEN_SIZE {
-                let us_val = us[j].clamp(0, QA as i32);
-                let them_val = them[j].clamp(0, QA as i32);
+                // Clamp accumulator values to [0, 255] as per Stockfish
+                let us_val = us[j].clamp(0, 255);
+                let them_val = them[j].clamp(0, 255);
                 sum += us_val * self.l1_weights[i * (HIDDEN_SIZE * 2) + j] as i32;
                 sum += them_val * self.l1_weights[i * (HIDDEN_SIZE * 2) + HIDDEN_SIZE + j] as i32;
             }
-            // SqrClippedReLU: square and shift right by 19 bits, clamp to [0, 127]
+            // SqrClippedReLU: square THEN shift and clamp
+            // Input can be negative, squaring makes it positive
             let squared = (sum as i64) * (sum as i64);
             l1_out[i] = (squared >> 19).clamp(0, 127) as i8;
         }
@@ -256,10 +300,8 @@ impl NNUE {
         }
         
         // Scale to centipawns
-        // Final output is scaled by (600 * OutputScale) / (127 * 2^WeightScaleBits)
-        // = (600 * 16) / (127 * 64) = 9600 / 8128 ≈ 1.18
-        // But Stockfish just divides by 2^WeightScaleBits and multiplies by OutputScale
-        // So: output / 64 / 16 = output / 1024
+        // Stockfish formula: output / (2^WeightScaleBits * OutputScale)
+        // = output / (64 * 16) = output / 1024
         let eval = output / (QB * FV_SCALE);
         eval as i16
     }
