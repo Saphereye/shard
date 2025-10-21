@@ -11,3 +11,7 @@ timecat = { version = "1.45.6", default-features = false, features = ["inbuilt_n
 
 [profile.release]
 debug = true
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+strip = false
