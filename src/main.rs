@@ -985,7 +985,7 @@ fn calculate_time_limit(
 ) -> Option<Duration> {
     // Case 1: movetime override
     if let Some(ms) = movetime {
-        return Some(Duration::from_millis(ms.saturating_sub(100))); // 100ms overhead for safety
+        return Some(Duration::from_millis(ms.saturating_sub(150))); // 150ms overhead for safety
     }
 
     // Get time and increment for current player
@@ -995,29 +995,29 @@ fn calculate_time_limit(
     };
 
     // Don't search if almost no time left
-    if time_left < 200 {
+    if time_left < 300 {
         return Some(Duration::from_millis(50));
     }
 
-    let overhead = 100u64; // Increased overhead for safety
+    let overhead = 150u64; // Increased overhead for safety
     let usable_time = time_left.saturating_sub(overhead);
-    let emergency_reserve = usable_time / 15; // 6.7% emergency reserve (more conservative)
+    let emergency_reserve = usable_time / 10; // 10% emergency reserve (very conservative)
     let available_time = usable_time.saturating_sub(emergency_reserve);
 
     let allocated_time = match movestogo {
         // Tournament time control (e.g., 40/90+30)
         Some(moves_left) => {
             if moves_left == 0 {
-                (available_time as f64 * 0.015) as u64 + increment / 3
+                (available_time as f64 * 0.01) as u64 + increment / 4
             } else {
                 let base_per_move = available_time / moves_left;
-                let increment_bonus = (increment * 3) / 5; // Use 60% of increment (more conservative)
+                let increment_bonus = increment / 2; // Use 50% of increment (very conservative)
                 
-                // Don't use more than 1/4 of time in one move (more conservative)
+                // Don't use more than 1/5 of time in one move (very conservative)
                 let max_time = if moves_left <= 5 {
-                    available_time / moves_left + increment / 3
+                    available_time / moves_left + increment / 4
                 } else {
-                    (available_time / 4).min(base_per_move * 2)
+                    (available_time / 5).min(base_per_move * 2)
                 };
                 
                 (base_per_move + increment_bonus).min(max_time)
@@ -1026,18 +1026,18 @@ fn calculate_time_limit(
         
         // Sudden death or increment games
         None => {
-            // Use smaller fraction of remaining time (more conservative)
-            let base_fraction = if available_time > 60000 { 0.025 } else { 0.015 }; // 2.5% or 1.5%
+            // Use very small fraction of remaining time (very conservative)
+            let base_fraction = if available_time > 60000 { 0.02 } else { 0.01 }; // 2% or 1%
             let base_time = (available_time as f64 * base_fraction) as u64;
-            let increment_bonus = (increment * 3) / 5; // Use 60% of increment
+            let increment_bonus = increment / 2; // Use 50% of increment
             
-            // Maximum time limits to prevent spending too much early (more conservative)
+            // Maximum time limits to prevent spending too much early (very conservative)
             let max_time = if available_time > 300000 { // > 5 minutes
-                available_time / 12 // Max 8.3% of time
+                available_time / 15 // Max 6.7% of time
             } else if available_time > 60000 { // > 1 minute
-                available_time / 10  // Max 10% of time
+                available_time / 12  // Max 8.3% of time
             } else {
-                available_time / 6  // Max 16.7% when low on time
+                available_time / 8  // Max 12.5% when low on time
             };
             
             (base_time + increment_bonus).min(max_time)
