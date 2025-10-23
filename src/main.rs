@@ -1071,6 +1071,17 @@ fn main() {
             Ok((_, UCICommand::IsReady)) => {
                 println!("readyok");
             }
+            Ok((_, UCICommand::UciNewGame)) => {
+                // Reset the engine state for a new game
+                engine = ChessEngine::new();
+                current_board = Board::default();
+            }
+            Ok((_, UCICommand::Stop)) => {
+                // Stop command - in a real implementation with threading, 
+                // this would signal the search thread to stop
+                // For now, we just acknowledge it
+                println!("# Stop command received (search will complete current iteration)");
+            }
             Ok((_, UCICommand::Eval)) => {
                 let mut evaluation = evaluate_board(&current_board) as f64;
                 evaluation /= 100.0;

@@ -13,6 +13,7 @@ use nom::{
 pub enum UCICommand {
     Uci,
     IsReady,
+    UciNewGame,
     Position {
         fen: Option<String>,
         moves: Vec<String>,
@@ -27,6 +28,7 @@ pub enum UCICommand {
         depth: Option<u64>,
         nodes: Option<u64>,
     },
+    Stop,
     Bench,
     Eval,
     Display,
@@ -122,6 +124,16 @@ pub fn parse_eval(input: &str) -> IResult<&str, UCICommand> {
     Ok((input, UCICommand::Eval))
 }
 
+pub fn parse_ucinewgame(input: &str) -> IResult<&str, UCICommand> {
+    let (input, _) = tag("ucinewgame")(input)?;
+    Ok((input, UCICommand::UciNewGame))
+}
+
+pub fn parse_stop(input: &str) -> IResult<&str, UCICommand> {
+    let (input, _) = tag("stop")(input)?;
+    Ok((input, UCICommand::Stop))
+}
+
 fn parse_fen(input: &str) -> IResult<&str, String> {
     let (input, fen) =
         take_until::<&str, &str, NomError<&str>>(" moves")(input).or(Ok((input, input)))?;
@@ -161,8 +173,10 @@ pub fn parse(input: &str) -> IResult<&str, UCICommand> {
     alt((
         parse_uci,
         parse_isready,
+        parse_ucinewgame,
         parse_position,
         parse_go,
+        parse_stop,
         parse_quit,
         parse_bench,
         parse_eval,
