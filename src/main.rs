@@ -651,7 +651,8 @@ impl ChessEngine {
 
         let tt_index = (hash as usize) % self.tt_size;
         let hash_move = if let Some(ref entry) = self.transposition_table[tt_index] {
-            if entry.key == (hash >> 32) as u32 && entry.depth >= depth {
+            if entry.key == (hash >> 32) as u32 && entry.depth >= depth && entry.age == self.tt_age
+            {
                 self.stats.transposition_hits += 1;
                 let score = self.adjust_mate_score(entry.score, ply);
 
