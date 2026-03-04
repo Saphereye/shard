@@ -20,7 +20,7 @@ pub fn evaluate_board(board: &Board) -> i16 {
             let reader = HalfKPModelReader::read(&mut cursor).unwrap();
             MODEL = Some(reader.to_default_model());
         });
-        
+
         MODEL.as_mut().unwrap().update_model_and_evaluate(&position)
     }
 }

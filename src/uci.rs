@@ -24,13 +24,14 @@ pub enum UCICommand {
         binc: Option<u64>,
         movestogo: Option<u64>,
         movetime: Option<u64>,
-        depth: Option<u64>,
+        depth: Option<u8>,
         nodes: Option<u64>,
     },
     Bench,
     Eval,
     Display,
     Quit,
+    NewGame,
 }
 
 // Helper function to parse an integer
@@ -71,7 +72,7 @@ pub fn parse_go(input: &str) -> IResult<&str, UCICommand> {
             "binc" => binc = Some(value as u64),
             "movestogo" => movestogo = Some(value as u64),
             "movetime" => movetime = Some(value as u64),
-            "depth" => depth = Some(value as u64),
+            "depth" => depth = Some(value as u8),
             "nodes" => nodes = Some(value as u64),
             _ => {}
         }
@@ -95,6 +96,11 @@ pub fn parse_go(input: &str) -> IResult<&str, UCICommand> {
 pub fn parse_quit(input: &str) -> IResult<&str, UCICommand> {
     let (input, _) = tag("quit")(input)?;
     Ok((input, UCICommand::Quit))
+}
+
+pub fn parse_newgame(input: &str) -> IResult<&str, UCICommand> {
+    let (input, _) = tag("ucinewgame")(input)?;
+    Ok((input, UCICommand::NewGame))
 }
 
 pub fn parse_uci(input: &str) -> IResult<&str, UCICommand> {
@@ -164,6 +170,7 @@ pub fn parse(input: &str) -> IResult<&str, UCICommand> {
         parse_position,
         parse_go,
         parse_quit,
+        parse_newgame,
         parse_bench,
         parse_eval,
         parse_display,
