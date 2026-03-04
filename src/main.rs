@@ -158,7 +158,7 @@ impl PositionHistory {
     }
 
     fn is_threefold_repetition(&self, hash: u64) -> bool {
-        self.get_repetition_count(hash) >= 3
+        self.get_repetition_count(hash) >= 2
     }
 
     fn is_fifty_move_rule(&self) -> bool {
@@ -360,7 +360,10 @@ impl ChessEngine {
 
             // Found a forced mate, no point searching deeper
             if score > CHECKMATE_SCORE - 1000 {
-                break;
+                let mate_in_moves = (CHECKMATE_SCORE - score + 1) / 2;
+                if mate_in_moves <= current_depth as i16 {
+                    break;
+                }
             }
 
             // SOFT STOP
