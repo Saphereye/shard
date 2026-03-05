@@ -158,7 +158,7 @@ impl PositionHistory {
     }
 
     fn is_threefold_repetition(&self, hash: u64) -> bool {
-        self.get_repetition_count(hash) >= 2
+        self.get_repetition_count(hash) >= 3
     }
 
     fn is_fifty_move_rule(&self) -> bool {
@@ -358,7 +358,7 @@ impl ChessEngine {
                 break;
             }
 
-            // Found a forced mate, no point searching deeper
+            // Found a forced mate within search depth
             if score > CHECKMATE_SCORE - 1000 {
                 let mate_in_moves = (CHECKMATE_SCORE - score + 1) / 2;
                 if mate_in_moves <= current_depth as i16 {
@@ -368,14 +368,21 @@ impl ChessEngine {
 
             // SOFT STOP
             if elapsed >= time_control.optimum {
-                if best_move_stable_iters >= 3 {
+                let score_stable = best_move_stable_iters >= 3;
+                let score_dropped = last_score.map_or(false, |prev| score < prev - 20);
+                let score_spiked = last_score.map_or(false, |prev| score > prev + 20);
+
+                // If score is dropping or spiking, the position is dynamic - use more time
+                if score_dropped || score_spiked {
+                    // Allow up to maximum, don't stop early
+                    continue;
+                }
+
+                if score_stable {
                     break;
                 }
-                if let Some(prev) = last_score {
-                    if (prev - score) > 50 {
-                        continue;
-                    }
-                }
+
+                // Default: stop at optimum if not clearly unstable
                 break;
             }
         }
@@ -941,11 +948,14 @@ impl ChessEngine {
 
         alpha = alpha.max(stand_pat);
 
-        // Only consider captures and promotions in quiescence search
         let moves: Vec<ChessMove> = MoveGen::new_legal(board)
             .filter(|&mv| {
-                board.piece_on(mv.get_dest()).is_some() || // Captures
-                mv.get_promotion().is_some() // Promotions
+                board.piece_on(mv.get_dest()).is_some() // Captures
+        || mv.get_promotion().is_some()                 // Promotions
+        || (ply < 2 && {                                // Checks in first 2 plies only
+            let new_board = board.make_move_new(mv);
+            new_board.checkers().popcnt() > 0
+        })
             })
             .collect();
 
@@ -1362,7 +1372,6 @@ fn calculate_time_limit(
     movetime: Option<u64>,
     side_to_move: Color,
 ) -> TimeControl {
-    // 1️⃣ Infinite mode (go infinite)
     if wtime.is_none() && btime.is_none() && movetime.is_none() {
         return TimeControl {
             optimum: Duration::MAX,
@@ -1370,13 +1379,11 @@ fn calculate_time_limit(
         };
     }
 
-    // 2️⃣ Movetime override
     if let Some(ms) = movetime {
-        let soft = ms.saturating_sub(10);
-        let hard = ms.saturating_sub(2);
+        let t = ms.saturating_sub(20).max(1);
         return TimeControl {
-            optimum: Duration::from_millis(soft.max(1)),
-            maximum: Duration::from_millis(hard.max(1)),
+            optimum: Duration::from_millis(t),
+            maximum: Duration::from_millis(t),
         };
     }
 
@@ -1385,49 +1392,59 @@ fn calculate_time_limit(
         Color::Black => (btime.unwrap_or(0), binc.unwrap_or(0)),
     };
 
-    // Safety fallback
-    if time_left == 0 {
-        return TimeControl {
-            optimum: Duration::from_millis(1000),
-            maximum: Duration::from_millis(2000),
-        };
-    }
-
     if time_left <= 100 {
         return TimeControl {
-            optimum: Duration::from_millis(5),
-            maximum: Duration::from_millis(10),
+            optimum: Duration::from_millis(10),
+            maximum: Duration::from_millis(15),
         };
     }
 
-    let overhead = 30;
-    let time_left = time_left.saturating_sub(overhead);
+    if time_left <= 1000 {
+        let t = (time_left / 8).max(10);
+        return TimeControl {
+            optimum: Duration::from_millis(t),
+            maximum: Duration::from_millis((t * 2).min(time_left / 2)),
+        };
+    }
 
-    let moves_to_go = movestogo.unwrap_or_else(|| {
-        // Use more time early, less late
-        if time_left > 60_000 {
+    let overhead = 50u64;
+    let safe_time = time_left.saturating_sub(overhead);
+
+    let (optimum, maximum) = if let Some(mtg) = movestogo {
+        // Repeating time control (e.g. 40/300)
+        // Distribute time evenly but keep a buffer for the last few moves
+        let mtg = mtg.max(1);
+        let base = safe_time / mtg;
+        let inc_bonus = increment * 3 / 4;
+        let opt = (base + inc_bonus).min(safe_time / 3);
+        let max = (opt * 3).min(safe_time * 2 / 3);
+        (opt, max)
+    } else {
+        // Sudden death - estimate moves remaining based on time left
+        let moves_left = if time_left > 120_000 {
+            40
+        } else if time_left > 60_000 {
+            35
+        } else if time_left > 30_000 {
             25
-        } else if time_left > 20_000 {
+        } else if time_left > 10_000 {
             20
-        } else {
+        } else if time_left > 5_000 {
             15
-        }
-    });
+        } else {
+            10
+        };
 
-    let base_time = time_left / moves_to_go;
-
-    let inc_weight = if time_left < 30_000 { 1.0 } else { 0.5 };
-    let inc_bonus = (increment as f64 * inc_weight) as u64;
-
-    let mut optimum = base_time + inc_bonus;
-
-    optimum = optimum.min(time_left / 4);
-
-    let maximum = (optimum * 3).min(time_left / 2);
+        let base = safe_time / moves_left;
+        let inc_bonus = increment * 3 / 4;
+        let opt = (base + inc_bonus).min(safe_time / 5); // Never more than 20% of remaining
+        let max = (opt * 3).min(safe_time / 3); // Max is 3x optimum but never > 33%
+        (opt, max)
+    };
 
     TimeControl {
-        optimum: Duration::from_millis(optimum.max(5)),
-        maximum: Duration::from_millis(maximum.max(10)),
+        optimum: Duration::from_millis(optimum.max(10)),
+        maximum: Duration::from_millis(maximum.max(20)),
     }
 }
 
