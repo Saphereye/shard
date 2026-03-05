@@ -13,7 +13,7 @@ mod uci;
 use uci::*;
 
 const CHECKMATE_SCORE: i16 = 25000;
-const DRAW_SCORE: i16 = 0;
+const DRAW_SCORE: i16 = -30;
 
 // Optimized transposition table entry - packed into 12 bytes
 #[derive(Clone, Debug)]
